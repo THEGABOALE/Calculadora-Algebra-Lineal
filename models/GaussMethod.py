@@ -2,10 +2,10 @@ from models.Matrix import Matrix
 from math import isclose
 import copy
 from typing import Any, Dict, List, Optional, Tuple
-from utils.printMethods import log_step
+from utils.printMethods import log_step, print_summary, print_equation, print_frame
 from utils.EquationFunctions import format_number, num_to_sub
 from models.system_solver.GaussSolver import analyze_argumented, solve_from_upper
-
+from helpers import inputsmatrix
 
 """
 Metodo de Gauss con:
@@ -349,5 +349,16 @@ class GaussMethod(Matrix):
             self.swipe_rows(col, row_option)
             return
     
-    def __str__(self) -> str:
-        return super().__str__()
+def run_gauss():
+    rows, cols = inputsmatrix()
+    
+    matriz, vector = Matrix.make_equation(rows, cols)
+    print(print_equation(matriz, vector))
+    gauss = GaussMethod(matriz, vector)
+    results = gauss.solve_and_log()
+    
+    print_frame(gauss.frame)
+    print(print_equation(matriz, vector))
+    print_summary(results)
+    
+__all__ = ['GaussMethod', 'run_gauss']
