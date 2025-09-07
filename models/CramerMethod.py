@@ -32,7 +32,7 @@ class CramerMethod(Matrix):
     #-----------------------
     # DETERMINANTE (expansion de cofactores)
     #-----------------------
-    def calculate_determinant(self, matrix: List[List[float]]) -> float :
+    def calculate_determinant(self, matrix: List[List[float]], show_sarrus: bool = False) -> float :
         n = len(matrix)
         
         # Caso base: matriz 1x1
@@ -42,6 +42,20 @@ class CramerMethod(Matrix):
         # Caso base: matriz 2x2
         if n == 2:
             return matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
+        
+        if n==3:
+            if show_sarrus:
+                extended = [row[:] for row in matrix] + [matrix[0][:], matrix[1][:]]
+                log_step(self.frame, "Sarrus - Matriz Extendida", extended, det=None, tag="sarrus")
+                
+            a11, a12, a13 = matrix[0]
+            a21, a22, a23 = matrix[1]
+            a31, a32, a33 = matrix[2]
+            
+            # Regla de Sarrus:
+            positive = a11 * a22 * a33 + a12 * a23 * a31 + a13 * a21 * a32
+            negative = a13 * a22 * a31 + a11 * a23 * a32 + a12 * a21 * a33
+            return positive - negative
         
         # Caso recursivo: expansión por la primera fila
         det = 0
@@ -83,7 +97,7 @@ class CramerMethod(Matrix):
         self.solution = None
         
         # Calculo de determinante
-        detA = self.calculate_determinant(self.matrix_A)
+        detA = self.calculate_determinant(self.matrix_A, show_sarrus=(self.n_variables == 3))
         self.determinant_A = detA
         log_step(self.frame, "Determinante matriz A",self.matrix_A, det=format_number(detA), tag="Determinante A")
         
@@ -92,7 +106,7 @@ class CramerMethod(Matrix):
             solution: List[float] = []
             for col in range(self.n_variables):
                 C = self.create_cramer_matrix(col)
-                detC = self.calculate_determinant(C)
+                detC = self.calculate_determinant(C, show_sarrus=(self.n_variables == 3))
                 xi = detC / detA
                 log_step(self.frame, f"Matriz Cramer para x{num_to_sub(col+1)}", C, det = format_number(detC), tag=f"cramer_x{col+1}")
                 solution.append(xi)
@@ -120,7 +134,7 @@ class CramerMethod(Matrix):
         detC_values = []
         for col in range(self.n_variables):
             C = self.create_cramer_matrix(col)
-            detC = self.calculate_determinant(C)
+            detC = self.calculate_determinant(C, show_sarrus=(self.n_variables == 3))
             detC_values.append(detC)
             log_step(self.frame, f"Matriz de Cramer para x{num_to_sub(col+1)}", C,det=format_number(detC), tag=f"cramer_check_x{col+1}")
             
@@ -141,7 +155,7 @@ class CramerMethod(Matrix):
         
         result = {
             'status': 'infinite',
-            'solution': None,
+            'solution': 'Crammer',
             'basic_vars': list(range(self.n_variables)),
             'free_vars': [],
             'determinant': detA

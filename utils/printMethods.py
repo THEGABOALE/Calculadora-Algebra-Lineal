@@ -120,7 +120,9 @@ def print_summary(result: Optional[Any]):
     print(f"Variables libres: {vars_to_str(free)}")
 
     sol = result.get('solution')
-    if sol is not None:
+    if sol == 'Crammer':
+        print("Solucion particular: No determinado por Crammer")
+    elif sol is not None and sol != 'Crammer':
         # vector compacto formateado
         sol_formatted = [format_number(v) for v in sol]
         print(f"Solución particular: [{', '.join(sol_formatted)}]")
@@ -133,6 +135,7 @@ def print_summary(result: Optional[Any]):
 
         if status == 'infinite':
             print("\nNota: la solución mostrada es una solución particular (variables libres = 0).")
+    
     else:
         print("Solución particular: None (sistema inconsistente)")
     print("=================================")

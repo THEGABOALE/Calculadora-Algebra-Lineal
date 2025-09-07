@@ -4,7 +4,7 @@ from models.CramerMethod import run_crammer
 from models.GaussMethod import run_gauss
 
 def main():
-    run_gauss()
+    run_crammer()
     
 if __name__ == "__main__":
     main()
