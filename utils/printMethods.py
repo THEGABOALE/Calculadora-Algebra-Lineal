@@ -63,7 +63,7 @@ def print_frame(frame: Frame, show_det: bool = True, sep: str = "-"*40)->None:
             print(f"(tag: {tag})")
         print(sep)
     
-__all__ = ["log_step", "format_matrix", "print_frame"]
+
 
 def print_equation(matriz: list[list], vector: list[float]) -> str:
     filas = len(matriz)
@@ -136,3 +136,6 @@ def print_summary(result: Optional[Any]):
     else:
         print("Solución particular: None (sistema inconsistente)")
     print("=================================")
+    
+
+__all__ = ["log_step", "format_matrix", "print_frame", "print_equation", "print_summary"]
