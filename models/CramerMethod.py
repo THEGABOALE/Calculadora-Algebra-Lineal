@@ -1,10 +1,10 @@
 from models.Matrix import Matrix
-from typing import Any, Dict, List, Optional, Tuple
+from typing import Any, Dict, List, Optional
 from utils.printMethods import log_step
 from utils.EquationFunctions import format_number, num_to_sub
 import copy
 from math import isclose
-from helpers import inputsmatrix
+from helpers.inputsmatrix import inputs_matrix
 # For running here
 from utils.printMethods import print_frame, print_summary, print_equation
 
@@ -27,7 +27,7 @@ class CramerMethod(Matrix):
         self.frame: Dict[str, Dict[str, Any]] = {}
         
         self.determinant_A: Optional[float] = None
-        self.solution = Optional[List[float]] = None
+        self.solution: Optional[List[float]] = None
     
     #-----------------------
     # DETERMINANTE (expansion de cofactores)
@@ -85,48 +85,65 @@ class CramerMethod(Matrix):
         # Calculo de determinante
         detA = self.calculate_determinant(self.matrix_A)
         self.determinant_A = detA
-        log_step(self.frame, "Determinante matriz A",self.matrix_A, det=detA, tag="Determinante A")
+        log_step(self.frame, "Determinante matriz A",self.matrix_A, det=format_number(detA), tag="Determinante A")
         
-        # Si detA == 0 -> sin solucion
-        if isclose(detA, 0.0, abs_tol=self.tolerance):
-            log_step(self.frame, "Determinante = 0 -> Sin solucion", self.matrix_A, det=detA, tag="Sin solucion")
+        # Si detA != 0 -> solucion uncia
+        if not isclose(detA, 0.0, abs_tol=self.tolerance):
+            solution: List[float] = []
+            for col in range(self.n_variables):
+                C = self.create_cramer_matrix(col)
+                detC = self.calculate_determinant(C)
+                xi = detC / detA
+                log_step(self.frame, f"Matriz Cramer para x{num_to_sub(col+1)}", C, det = format_number(detC), tag=f"cramer_x{col+1}")
+                solution.append(xi)
+            self.solution = solution
             
+            solution_formatted = [format_number(v) for v in solution]
+            log_step(self.frame, f"Solucion por regla de Cramer (particular): [{', '.join(solution_formatted)}]",
+                    self.matrix_A, det=format_number(detA), tag="solution")
+            
+            basic_vars = list(range(self.n_variables))
+            free_vars: List[int] = []
+            log_step(self.frame, f"Variables basicas: {', '.join('x'+num_to_sub(i+1) for i in basic_vars)} | Variables libres: None",
+                    self.matrix_A, det=format_number(detA), tag="vars")
             result = {
-                'status': 'inconsistent',
-                'solution': None,
-                'basic_vars': list(range(self.n_variables)),
-                'free_vars': [],
-                'determinant': detA
-            }
-            return result
-
-        # Calcular cada variable
-        solution: List[float] = []
-        for col in range(self.n_variables):
-            C = self.create_cramer_matrix(col)
-            detC = self.calculate_determinant(C)
-            vari = detC / detA
-            
-            log_step(self.frame, f"Matriz de Cramer para x{num_to_sub(col+1)}", C, det=detC, tag=f"cramer_x{col+1}")
-            
-            solution.append(vari)
-        self.solution = solution
-        
-        # Registrar solucion y variables
-        solution_formatted = [format_number(v) for v in solution]
-        log_step(self.frame, f"Solucion por regla de Cramer (particular): [{', '.join(solution_formatted)}]",
-                self.matrix_A, det=detA, tag="solution")
-
-        basic_vars = list(range(self.n_variables))
-        free_vars: List[int] = []
-        log_step(self.frame, f"Variables básicas: {', '.join('x'+num_to_sub(i+1) for i in basic_vars)} | Variables libres: None",
-                self.matrix_A, det=detA, tag="solution")
-        
-        result = {
             'status': 'unique',
             'solution': solution,
             'basic_vars': basic_vars,
             'free_vars': free_vars,
+            'determinant': detA
+            }
+            return result
+        
+        
+        # Si detA == 0 -> inconsistente
+        detC_values = []
+        for col in range(self.n_variables):
+            C = self.create_cramer_matrix(col)
+            detC = self.calculate_determinant(C)
+            detC_values.append(detC)
+            log_step(self.frame, f"Matriz de Cramer para x{num_to_sub(col+1)}", C,det=format_number(detC), tag=f"cramer_check_x{col+1}")
+            
+        if any(not isclose(v, 0.0, abs_tol=self.tolerance) for v in detC_values):
+            log_step(self.frame, "Determinantes de Cramer no todos cero -> sistema inconsistente", self.matrix_A, det=format_number(detA), tag="inconsistent")
+            result = {
+            'status': 'inconsistent',
+            'solution': None,
+            'basic_vars': list(range(self.n_variables)),
+            'free_vars': [],
+            'determinant': detA
+            }
+            return result
+        
+        # Si no se cumplieron las demas, indica que detA == 0 y todos detC == 0 -> infinitas soluciones
+        log_step(self.frame, "Determinante de Cramer todos cero -> infinitas soluciones", self.matrix_A, det=format_number(detA), tag="infinite")
+        
+        
+        result = {
+            'status': 'infinite',
+            'solution': None,
+            'basic_vars': list(range(self.n_variables)),
+            'free_vars': [],
             'determinant': detA
         }
         return result
@@ -166,7 +183,7 @@ class CramerMethod(Matrix):
         return {'ok': ok, 'differences': diffs}
     
 def run_crammer():
-    rows, cols = inputsmatrix()
+    rows, cols = inputs_matrix()
     
     matrix, vector = Matrix.make_equation(rows, cols)
     print(print_equation(matrix, vector))

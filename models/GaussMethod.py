@@ -5,7 +5,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from utils.printMethods import log_step, print_summary, print_equation, print_frame
 from utils.EquationFunctions import format_number, num_to_sub
 from models.system_solver.GaussSolver import analyze_argumented, solve_from_upper
-from helpers import inputsmatrix
+from helpers.inputsmatrix import inputs_matrix
 
 """
 Metodo de Gauss con:
@@ -350,7 +350,7 @@ class GaussMethod(Matrix):
             return
     
 def run_gauss():
-    rows, cols = inputsmatrix()
+    rows, cols = inputs_matrix()
     
     matriz, vector = Matrix.make_equation(rows, cols)
     print(print_equation(matriz, vector))
