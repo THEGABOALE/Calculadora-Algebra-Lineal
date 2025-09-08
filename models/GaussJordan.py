@@ -1,3 +1,27 @@
+"""
+GAUSS–JORDAN (RREF) CON LOGS
+
+Propósito
+- Resolver sistemas lineales trabajando sobre la matriz aumentada [A | b].
+- Llevar la matriz a forma reducida por filas (RREF): pivotes = 1 y ceros
+  arriba/abajo de cada pivote.
+
+Características
+- Soporta matrices rectangulares m×n (A) con vector b (longitud m).
+- Pivoteo parcial por filas (no intercambia columnas).
+- Registro de pasos en `self.frame` mediante `utils.printMethods.log_step`.
+- Detección de tipo de solución, variables básicas/libres e inconsistencias
+  usando `analyze_argumented` y solución particular con `solve_from_upper`.
+
+Entradas
+- A: list[list[float]]     b: list[float] (len(b) == filas(A))
+
+Dependencias (internas)
+- models.Matrix.Matrix (para estructura y pretty-print de matriz)
+- utils.printMethods (log_step, print_frame, print_equation, print_summary)
+- models.system_solver.GaussSolver (analyze_argumented, solve_from_upper)
+"""
+
 from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Optional, Tuple
@@ -10,17 +34,17 @@ from helpers.inputsmatrix import inputs_matrix
 
 class GaussJordanMethod(Matrix):
     """
-    Método de Gauss-Jordan con:
-      - Soporte m x n (rectangulares) con matriz A y vector b (matriz aumentada).
-      - Registro detallado de operaciones en self.frame (swap, escalar, eliminación, upper, rref, summary).
-      - Detección de pivotes, variables básicas y libres, e inconsistencias.
-      - Triangulación superior y reducción total a RREF (ceros arriba/abajo y diagonal 1).
-      - Chequeos de singularidad para A cuadrada.
+    Implementación de Gauss–Jordan sobre [A | b].
+
+    - Forward: triangulación superior (ceros debajo de pivotes).
+    - Backward + normalize: RREF (pivotes = 1 y ceros arriba/abajo).
+    - Registro de operaciones y análisis del sistema.
+
     Uso típico:
-        mat, b = Matrix.make_equation(m, n)      # <— solo este camino
-        gj = GaussJordanMethod(mat, b)
-        gj.run()                                  # forward + backward (RREF) con logs
-        result = gj.solve_and_log()               # analiza tipo de solución y da solución particular
+        A, b = Matrix.make_equation(m, n)
+        gj = GaussJordanMethod(A, b)
+        gj.run()                 # RREF con logs
+        result = gj.solve_and_log()
     """
     
     def __init__(self, matriz: List[List[float]], b: Optional[List[float]]) -> None:
@@ -30,7 +54,7 @@ class GaussJordanMethod(Matrix):
         if len(b) != len(matriz):
             raise ValueError("El vector b debe tener la misma cantidad de filas que A.")
         
-        # Construir matriz aumentada [A | b]
+        # Construir matriz aumentada [A | b] y delegar tamaños a Matrix
         aug = [list(map(float, row)) + [float(bi)] for row, bi in zip(matriz, b)]
         super().__init__(copy.deepcopy(aug))
         
@@ -52,18 +76,21 @@ class GaussJordanMethod(Matrix):
     # Helpers numéricos
     # ----------------------
     def _zero_small(self, x: float) -> float:
+        """Lleva a 0 valores muy pequeños para limpiar el formato."""
         return 0.0 if isclose(x, 0.0, abs_tol=self.tolerance) else x
 
     # ----------------------
     # Operaciones elementales (con log)
     # ----------------------
     def _swap_rows(self, r1: int, r2: int) -> None:
+        """Intercambia filas y registra el paso (no cambia determinante aquí)."""
         if r1 == r2:
             return
         self.matriz[r1], self.matriz[r2] = self.matriz[r2], self.matriz[r1]
         log_step(self.frame, f"F{r1+1} <-> F{r2+1}", self.matriz, det=None, tag="swap_rows")
         
     def _scale_row(self, r: int, factor: float) -> None:
+        """Normaliza fila: F_r := F_r / factor (factor ≠ 0)."""
         if isclose(factor, 1.0, abs_tol=self.tolerance):
             return
         if isclose(factor, 0.0, abs_tol=self.tolerance):
@@ -72,10 +99,14 @@ class GaussJordanMethod(Matrix):
         log_step(self.frame, f"F{r+1} -> F{r+1} / {format_number(factor)}", self.matriz, det=None, tag="scale")
         
     def _row_elim(self, target_r: int, pivot_r: int, pivot_c: int) -> None:
-        """F_target := F_target - factor * F_pivot para anular columna pivot_c."""
-        pivot_val = self.matriz[pivot_r][pivot_r]
+        """
+        Eliminación en columna pivot_c:
+            F_target := F_target - (A[target,pivot_c]/A[pivot_r,pivot_c]) * F_pivot
+        """
+        pivot_val = self.matriz[pivot_r][pivot_c]
         if isclose(pivot_val, 0.0, abs_tol = self.tolerance):
             return
+        
         factor = self.matriz[target_r][pivot_c] / pivot_val
         if isclose(factor, 0.0, abs_tol=self.tolerance):
             return
@@ -93,7 +124,7 @@ class GaussJordanMethod(Matrix):
     # Pivoteo parcial por filas
     # ----------------------
     def _select_pivot_row(self, start_row: int, col: int) -> int:
-        """Devuelve fila con |A[row][col]| máximo desde start_row, o -1 si la columna es casi cero."""
+        """Devuelve fila con |A[row,col]| máximo desde start_row; -1 si la columna ~ 0."""
         best = -1
         best_val = 0.0
         for r in range(start_row, self.filas):
@@ -110,8 +141,7 @@ class GaussJordanMethod(Matrix):
     # ----------------------
     def forward_elimination(self) -> List[Tuple[int, int]]:
         """
-        Genera ceros por DEBAJO de los pivotes (forma triangular superior).
-        Registra pivotes y operaciones en self.frame.
+        Triangulación superior: pone 0 debajo de cada pivote y registra pasos.
         """
         m = self.filas
         n_plus_1 = self.columnas
@@ -137,7 +167,7 @@ class GaussJordanMethod(Matrix):
             pivot_val = self.matriz[row][col]
             log_step(self.frame, f"Pivote en A[{row+1},{col+1}] = {format_number(pivot_val)}", self.matriz, det=None, tag="pivot")
 
-            # Eliminar hacia abajo
+            # Eliminar hacia abajo en la columna actual
             for r in range(row + 1, m):
                 self._row_elim(r, row, col)
 
@@ -153,9 +183,7 @@ class GaussJordanMethod(Matrix):
     # ----------------------
     def backward_elimination_and_normalize(self) -> None:
         """
-        Lleva la matriz a RREF:
-          - pivotes normalizados a 1
-          - ceros arriba y abajo de cada pivote
+        RREF: pivotes a 1 y ceros arriba de cada pivote (se recorre de abajo a arriba).
         """
         if not self.pivots:
             self.forward_elimination()
@@ -178,7 +206,7 @@ class GaussJordanMethod(Matrix):
     # Orquestador
     # ----------------------
     def run(self) -> Dict[str, Dict[str, Any]]:
-        """Ejecuta Gauss-Jordan completo con logs."""
+        """Ejecuta forward + backward (RREF) con registro de pasos."""
         self.frame = {}
         self.forward_elimination()
         self.backward_elimination_and_normalize()
@@ -188,15 +216,13 @@ class GaussJordanMethod(Matrix):
     # Análisis y solución
     # ----------------------
     def analyze(self) -> Dict[str, Any]:
-        """
-        Analiza [A|b] actual (tras forward/RREF) con analyze_argumented:
-          - rank, pivots, basic/free vars, filas inconsistentes y status
-        """
+        """Analiza [A|b] con analyze_argumented: rank, pivotes, básicas/libres, inconsistencias."""
         return analyze_argumented(self.matriz, tol=self.tolerance)
 
     def solve_and_log(self) -> Dict[str, Any]:
         """
-        Produce resumen y solución particular (si existe) reutilizando solve_from_upper.
+        Registra el resumen del tipo de solución y devuelve un dict con
+        'status', 'solution' (particular), 'basic_vars', 'free_vars', etc.
         Nota: aunque estamos en RREF, la rutina de back-sub funciona igual.
         """
         info = self.analyze()
@@ -227,8 +253,8 @@ class GaussJordanMethod(Matrix):
     # ----------------------
     def is_singular(self) -> Optional[bool]:
         """
-        Solo tiene sentido para A cuadrada.
-        Regresa True si rank(A) < n usando el análisis de la aumentada.
+        Devuelve True si rank(A) < n (A singular) para matrices cuadradas.
+        None si A no es cuadrada.
         """
         # n = columnas de coeficientes
         n = self.columnas - 1
@@ -240,6 +266,7 @@ class GaussJordanMethod(Matrix):
         
 # -------- Runner --------
 def run_gauss_jordan() -> None:
+    """Runner interactivo: pide A y b, ejecuta Gauss–Jordan y muestra proceso + resumen."""
     rows, cols = inputs_matrix()
     matriz, vector = Matrix.make_equation(rows, cols)
 
@@ -255,6 +282,5 @@ def run_gauss_jordan() -> None:
     print_frame(gj.frame)
     print(print_equation(matriz, vector))
     print_summary(results)
-
 
 __all__ = ["GaussJordanMethod", "run_gauss_jordan"]
