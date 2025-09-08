@@ -99,9 +99,11 @@ class CramerMethod(Matrix):
         # Calculo de determinante
         detA = self.calculate_determinant(self.matrix_A, show_sarrus=(self.n_variables == 3))
         self.determinant_A = detA
+
+        
         log_step(self.frame, "Determinante matriz A",self.matrix_A, det=format_number(detA), tag="Determinante A")
         
-        # Si detA != 0 -> solucion uncia
+        # Si detA != 0 -> solucion unica
         if not isclose(detA, 0.0, abs_tol=self.tolerance):
             solution: List[float] = []
             for col in range(self.n_variables):
