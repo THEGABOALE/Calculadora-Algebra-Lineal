@@ -99,6 +99,137 @@ class GaussJordanMethod(Matrix):
             return -1
         return best
     
-    
+     # ----------------------
+    # Fase 1: Eliminación hacia adelante (triangulación superior)
+    # ----------------------
+    def forward_elimination(self) -> List[Tuple[int, int]]:
+        """
+        Genera ceros por DEBAJO de los pivotes (forma triangular superior).
+        Registra pivotes y operaciones en self.frame.
+        """
+        m = self.filas
+        n_plus_1 = self.columnas
+        n = n_plus_1 - 1  # solo columnas de coeficientes
+
+        log_step(self.frame, "Matriz aumentada inicial", self.matriz, det=None, tag="start")
+
+        row = 0
+        pivots: List[Tuple[int, int]] = []
+        for col in range(n):
+            if row >= m:
+                break
+
+            sel = self._select_pivot_row(row, col)
+            if sel == -1:
+                # Columna sin pivote significativo
+                log_step(self.frame, f"No hay pivote significativo en la columna {col+1}", self.matriz, det=None, tag="no_pivot")
+                continue
+
+            if sel != row:
+                self._swap_rows(row, sel)
+
+            pivot_val = self.matriz[row][col]
+            log_step(self.frame, f"Pivote en A[{row+1},{col+1}] = {format_number(pivot_val)}", self.matriz, det=None, tag="pivot")
+
+            # Eliminar hacia abajo
+            for r in range(row + 1, m):
+                self._row_elim(r, row, col)
+
+            pivots.append((row, col))
+            row += 1
+
+        self.pivots = pivots
+        log_step(self.frame, "Triangulación superior (U)", self.matriz, det=None, tag="upper")
+        return pivots
+
+    # ----------------------
+    # Fase 2: Normalizar pivotes y eliminar arriba (RREF)
+    # ----------------------
+    def backward_elimination_and_normalize(self) -> None:
+        """
+        Lleva la matriz a RREF:
+          - pivotes normalizados a 1
+          - ceros arriba y abajo de cada pivote
+        """
+        if not self.pivots:
+            self.forward_elimination()
+
+        # Normalizar cada pivote a 1 (de abajo a arriba) y eliminar arriba
+        for (r, c) in reversed(self.pivots):
+            piv = self.matriz[r][c]
+            if isclose(piv, 0.0, abs_tol=self.tolerance):
+                continue
+            # Diagonal de 1
+            self._scale_row(r, piv)
+
+            # Ceros ARRIBA del pivote
+            for rr in range(0, r):
+                self._row_elim(rr, r, c)
+
+        log_step(self.frame, "Forma reducida por filas (RREF)", self.matriz, det=None, tag="rref")
+
+    # ----------------------
+    # Orquestador
+    # ----------------------
+    def run(self) -> Dict[str, Dict[str, Any]]:
+        """Ejecuta Gauss-Jordan completo con logs."""
+        self.frame = {}
+        self.forward_elimination()
+        self.backward_elimination_and_normalize()
+        return self.frame
+
+    # ----------------------
+    # Análisis y solución
+    # ----------------------
+    def analyze(self) -> Dict[str, Any]:
+        """
+        Analiza [A|b] actual (tras forward/RREF) con analyze_argumented:
+          - rank, pivots, basic/free vars, filas inconsistentes y status
+        """
+        return analyze_argumented(self.matriz, tol=self.tolerance)
+
+    def solve_and_log(self) -> Dict[str, Any]:
+        """
+        Produce resumen y solución particular (si existe) reutilizando solve_from_upper.
+        Nota: aunque estamos en RREF, la rutina de back-sub funciona igual.
+        """
+        info = self.analyze()
+        status = info.get("status")
+        pivots = info.get("pivots", [])
+        log_step(self.frame, f"Resumen: Tipo de solución = {status}", self.matriz, det=None, tag="summary")
+
+        if status == "inconsistent":
+            log_step(self.frame, "Sistema inconsistente: no existe solución", self.matriz, det=None, tag="inconsistent")
+            return {**info, "solution": None}
+
+        # Solución particular (variables libres = 0)
+        result = solve_from_upper(self.matriz, pivots=pivots, tol=self.tolerance)
+        sol = result.get("solution")
+        if sol is not None:
+            sol_str = [format_number(v) for v in sol]
+            log_step(self.frame, f"Solución particular (libres=0): [{', '.join(sol_str)}]", self.matriz, det=None, tag="solution")
+
+        basic = result.get("basic_vars", [])
+        free = result.get("free_vars", [])
+        def idxs_to_vars(idxs): return "None" if not idxs else ", ".join(f"x{(i+1)}" for i in idxs)
+        log_step(self.frame, f"Variables básicas: {idxs_to_vars(basic)} | Variables libres: {idxs_to_vars(free)}", self.matriz, det=None, tag="vars")
+
+        return result
+
+    # ----------------------
+    # Chequeos útiles
+    # ----------------------
+    def is_singular(self) -> Optional[bool]:
+        """
+        Solo tiene sentido para A cuadrada.
+        Regresa True si rank(A) < n usando el análisis de la aumentada.
+        """
+        # n = columnas de coeficientes
+        n = self.columnas - 1
+        m = self.filas
+        if n != m:
+            return None  # no aplica (A no es cuadrada)
+        info = self.analyze()
+        return info.get("rank", 0) < n
         
             
