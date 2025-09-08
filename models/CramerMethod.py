@@ -18,6 +18,11 @@ class CramerMethod(Matrix):
         if len(b) != len(matriz):
             raise ValueError("Las variables independientes deben tener la misma cantidad que el numero de ecuaciones")
         
+        n = len(matriz)
+        # comprobar que cada fila tenga longitud n (matriz n x n)
+        if any(len(row) != n for row in matriz):
+            raise ValueError("CramerMethod sólo acepta matrices cuadradas (n x n). La matriz recibida no es cuadrada.")
+        
         self.matrix_A = copy.deepcopy(matriz)
         self.vector_b = copy.deepcopy(b)
         self.n_variables: int = len(matriz)
@@ -203,6 +208,11 @@ def run_crammer():
     
     matrix, vector = Matrix.make_equation(rows, cols)
     print(print_equation(matrix, vector))
+    
+    if rows != cols:
+        print("Error: Cramer solo acepta sistemas cuadrados (mismo número de ecuaciones y variables).")
+        return
+    
     crammer = CramerMethod(matrix, vector)
     result = crammer.solve()
     
