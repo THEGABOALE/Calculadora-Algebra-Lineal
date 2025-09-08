@@ -1,5 +1,6 @@
-from models.Matrix import Matrix
 from typing import List, Optional
+from models.Matrix import Matrix
+from utils.printMethods import print_equation
 
 def _fmt(value: float) -> str:
     """Redondeo consistente con Matrix.__str__"""
@@ -29,18 +30,9 @@ def mostrar_sistema_ecuaciones(
     if len(vector) != matrix.filas:
         raise ValueError("El vector b debe tener la misma cantidad de filas que la matriz A.")
     
-    num_vars = matrix.columnas
-    if nombres_vars is None:
-        var_names = [f"x{j+1}" for j in range(num_vars)]
-    else:
-        if len(nombres_vars) != num_vars:
-            raise ValueError("La cantidad de nombres de variables no coincide con las columnas de A.")
-        var_names = nombres_vars
-        
-    w = _max_cell_width(matrix, vector)
-    
     # 1) Alineado tipo A | b
     if mostrar_matriz:
+        w = _max_cell_width(matrix, vector)
         print("\nMatriz de coeficientes (A) y vector de términos independientes (b):")
         for i, row in enumerate(matrix.matriz):
             left = " ".join(f"{_fmt(v):<{w}}" for v in row)
@@ -49,23 +41,7 @@ def mostrar_sistema_ecuaciones(
             
     #2) Sistema en forma alegbraica
     print("\nSistema de ecuaciones:")
-    for i in range(matrix.filas):
-        coefs = matrix.matriz[i]
-        rhs = vector[i]
-        tokens, first = [], True
-        for c, name in zip(coefs, var_names):
-            if c == 0:
-                continue
-            sign = '-' if c < 0 else '+'
-            abs_c = abs(c)
-            core = name if abs_c == 1 else f"{_fmt(abs_c)}*{name}"
-            if first:
-                tokens.append(f"-{core}" if c < 0 else core)
-                first = False
-            else:
-                tokens.append(f"{sign} {core}")
-        left = "0" if not tokens else " ".join(tokens)
-        print(f"{left} = {_fmt(rhs)}")
+    print(print_equation(matrix.matriz, vector))
 
 # Conveniencia: leer directamente con make_equation y mostrar
 def mostrar_sistema_desde_input(
