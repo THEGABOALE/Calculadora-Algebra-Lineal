@@ -1,7 +1,3 @@
-from typing import List, Optional
-from models.Matrix import Matrix
-from utils.printMethods import print_equation
-
 """
 DISPLAY DEL SISTEMA LINEAL (A, b)
 
@@ -22,6 +18,10 @@ Contratos e invariantes:
 Complejidad:
 - Tiempo O(m·n) y memoria adicional O(1), donde m=filas(A), n=columnas(A).
 """
+
+from typing import List, Optional
+from models.Matrix import Matrix
+from utils.printMethods import print_equation
 
 def _fmt(v: float) -> str:
     """Redondeo simple (4 decimales) alineado con Matrix.__str__."""
