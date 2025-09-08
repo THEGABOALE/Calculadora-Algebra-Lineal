@@ -3,9 +3,10 @@ import copy
 from typing import Any, Dict, List, Optional, Tuple
 from math import isclose 
 from models.Matrix import Matrix
-from utils.printMethods import log_step
+from utils.printMethods import log_step, print_summary, print_equation, print_frame
 from utils.EquationFunctions import format_number
 from models.system_solver.GaussSolver import analyze_argumented, solve_from_upper
+from helpers.inputsmatrix import inputs_matrix
 
 class GaussJordanMethod(Matrix):
     """
@@ -34,13 +35,13 @@ class GaussJordanMethod(Matrix):
         super().__init__(copy.deepcopy(aug))
         
         # Metadatos
-        self.is_argumented: bool = True
+        self.is_augmented: bool = True
         self.A: List[List[float]] = copy.deepcopy(matriz)
         self.b: List[float] = copy.deepcopy(b)
         
         # Log y tolerancias
-        self.tolerance = bool = True
-        self.frame = Dict[str, Dict[str, Any]] = {}
+        self.tolerance: float = 1e-12
+        self.frame: Dict[str, Dict[str, Any]] = {}
         self.pivots: List[Tuple[int, int]] = []   # lista de (fila, col) de pivotes detectados en forward
 
         # Determinante: solo relevante si A es cuadrada y no escalamos (aquí se escala para RREF),
@@ -232,4 +233,23 @@ class GaussJordanMethod(Matrix):
         info = self.analyze()
         return info.get("rank", 0) < n
         
-            
+# -------- Runner --------
+def run_gauss_jordan() -> None:
+    rows, cols = inputs_matrix()
+    matriz, vector = Matrix.make_equation(rows, cols)
+
+    # Mostrar sistema ingresado (formato algebraico)
+    print(print_equation(matriz, vector))
+
+    # Ejecutar Gauss-Jordan con logs
+    gj = GaussJordanMethod(matriz, vector)
+    gj.run()
+    results = gj.solve_and_log()
+
+    # Imprimir proceso y resumen
+    print_frame(gj.frame)
+    print(print_equation(matriz, vector))
+    print_summary(results)
+
+
+__all__ = ["GaussJordanMethod", "run_gauss_jordan"]
