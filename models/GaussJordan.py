@@ -73,12 +73,17 @@ class GaussJordanMethod(Matrix):
         
     def _row_elim(self, target_r: int, pivot_r: int, pivot_c: int) -> None:
         """F_target := F_target - factor * F_pivot para anular columna pivot_c."""
-        factor = self.matriz[target_r][pivot_c]
+        pivot_val = self.matriz[pivot_r][pivot_r]
+        if isclose(pivot_val, 0.0, abs_tol = self.tolerance):
+            return
+        factor = self.matriz[target_r][pivot_c] / pivot_val
         if isclose(factor, 0.0, abs_tol=self.tolerance):
             return
+        
         row_len = len(self.matriz[0])
         for j in range(pivot_c, row_len):
             self.matriz[target_r][j] = self._zero_small(self.matriz[target_r][j] - factor * self.matriz[pivot_r][j])
+        
         signo = "+" if factor < 0 else "-"
         log_step(self.frame,
                  f"F{target_r+1} -> F{target_r+1} {signo} {format_number(abs(factor))}*F{pivot_r+1}",
@@ -100,7 +105,7 @@ class GaussJordanMethod(Matrix):
             return -1
         return best
     
-     # ----------------------
+    # ----------------------
     # Fase 1: Eliminación hacia adelante (triangulación superior)
     # ----------------------
     def forward_elimination(self) -> List[Tuple[int, int]]:
