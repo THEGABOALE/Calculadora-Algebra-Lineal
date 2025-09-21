@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Calculadora de Álgebra Lineal</title>
+</head>
+<body>
+    <h1>Calculadora de Álgebra Lineal</h1>
+    <form action="" method="post">
+        {% csrf_token %}
+        <label for="rows">Filas:</label>
+        <input type="number" id="rows" name="rows" min="1" required>
+        <label for="cols">Columnas:</label>
+        <input type="number" id="cols" name="cols" min="1" required>
+        <button type="submit">Crear Matriz</button>
+    </form>
+</body>
+</html>
