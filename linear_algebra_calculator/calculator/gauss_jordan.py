@@ -28,6 +28,8 @@ from typing import Any, Dict, List, Optional, Tuple
 from math import isclose 
 from .matrix import Matrix
 from .system_solver.gauss_solver import solve_from_upper, analyze_argumented
+from utils.EquationFunctions import format_number, num_to_sub
+from utils.printMethods import log_step
 
 class GaussJordanMethod(Matrix):
     """
@@ -84,7 +86,8 @@ class GaussJordanMethod(Matrix):
         if r1 == r2:
             return
         self.matriz[r1], self.matriz[r2] = self.matriz[r2], self.matriz[r1]
-        
+        log_step(self.frame, f"F{r1+1} <-> F{r2+1}", self.matriz, det=None, tag="swap_rows")
+
     def _scale_row(self, r: int, factor: float) -> None:
         """Normaliza fila: F_r := F_r / factor (factor ≠ 0)."""
         if isclose(factor, 1.0, abs_tol=self.tolerance):
@@ -92,7 +95,8 @@ class GaussJordanMethod(Matrix):
         if isclose(factor, 0.0, abs_tol=self.tolerance):
             raise ValueError("No se puede escalar por 0.")
         self.matriz[r] = [self._zero_small(v / factor) for v in self.matriz[r]]
-        
+        log_step(self.frame, f"F{r+1} -> F{r+1} / {format_number(factor)}", self.matriz, det=None, tag="scale")
+
     def _row_elim(self, target_r: int, pivot_r: int, pivot_c: int) -> None:
         """
         Eliminación en columna pivot_c:
@@ -101,15 +105,17 @@ class GaussJordanMethod(Matrix):
         pivot_val = self.matriz[pivot_r][pivot_c]
         if isclose(pivot_val, 0.0, abs_tol = self.tolerance):
             return
-        
         factor = self.matriz[target_r][pivot_c] / pivot_val
         if isclose(factor, 0.0, abs_tol=self.tolerance):
             return
-        
         row_len = len(self.matriz[0])
         for j in range(pivot_c, row_len):
             self.matriz[target_r][j] = self._zero_small(self.matriz[target_r][j] - factor * self.matriz[pivot_r][j])
-        
+
+        signo = "+" if factor < 0 else "-"
+        log_step(self.frame,
+                 f"F{target_r+1} -> F{target_r+1} {signo} {format_number(abs(factor))}*F{pivot_r+1}",
+                 self.matriz, det=None, tag="elim")
     # ----------------------
     # Pivoteo parcial por filas
     # ----------------------
@@ -137,6 +143,8 @@ class GaussJordanMethod(Matrix):
         n_plus_1 = self.columnas
         n = n_plus_1 - 1  # solo columnas de coeficientes
 
+        log_step(self.frame, "Matriz aumentada inicial", self.matriz, det=None, tag="start")
+
         row = 0
         pivots: List[Tuple[int, int]] = []
         for col in range(n):
@@ -146,10 +154,14 @@ class GaussJordanMethod(Matrix):
             sel = self._select_pivot_row(row, col)
             if sel == -1:
                 # Columna sin pivote significativo
+                log_step(self.frame, f"No hay pivote significativo en la columna {col+1}", self.matriz, det=None, tag="no_pivot")
                 continue
 
             if sel != row:
                 self._swap_rows(row, sel)
+
+            pivot_val = self.matriz[row][col]
+            log_step(self.frame, f"Pivote en A[{row+1},{col+1}] = {format_number(pivot_val)}", self.matriz, det=None, tag="pivot")
 
             # Eliminar hacia abajo en la columna actual
             for r in range(row + 1, m):
@@ -159,6 +171,7 @@ class GaussJordanMethod(Matrix):
             row += 1
 
         self.pivots = pivots
+        log_step(self.frame, "Triangulación superior (U)", self.matriz, det=None, tag="upper")
         return pivots
 
     # ----------------------
@@ -183,6 +196,7 @@ class GaussJordanMethod(Matrix):
             for rr in range(0, r):
                 self._row_elim(rr, r, c)
 
+        log_step(self.frame, "Forma reducida por filas (RREF)", self.matriz, det=None, tag="rref")
     # ----------------------
     # Orquestador
     # ----------------------
@@ -209,12 +223,24 @@ class GaussJordanMethod(Matrix):
         info = self.analyze()
         status = info.get("status")
         pivots = info.get("pivots", [])
+        log_step(self.frame, f"Resumen: Tipo de solución = {status}", self.matriz, det=None, tag="summary")
 
         if status == "inconsistent":
+            log_step(self.frame, "Sistema inconsistente: no existe solución", self.matriz, det=None, tag="inconsistent")
             return {**info, "solution": None}
 
         # Solución particular (variables libres = 0)
         result = solve_from_upper(self.matriz, pivots=pivots, tol=self.tolerance)
+        sol = result.get("solution")
+        if sol is not None:
+            sol_str = [format_number(v) for v in sol]
+            log_step(self.frame, f"Solución particular (libres=0): [{', '.join(sol_str)}]", self.matriz, det=None, tag="solution")
+
+        basic = result.get("basic_vars", [])
+        free = result.get("free_vars", [])
+        def idxs_to_vars(idxs): return "None" if not idxs else ", ".join(f"x{(i+1)}" for i in idxs)
+        log_step(self.frame, f"Variables básicas: {idxs_to_vars(basic)} | Variables libres: {idxs_to_vars(free)}", self.matriz, det=None, tag="vars")
+
         return result
 
     # ----------------------

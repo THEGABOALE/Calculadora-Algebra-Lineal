@@ -1,8 +1,8 @@
 from django.shortcuts import render
 from .gauss import GaussMethod
 from .gauss_jordan import GaussJordanMethod
-from .cramer import CramerMethod
 from .fraction_utils import parse_fraction, format_number
+from utils.html_display import equation_to_html, summary_to_html, frame_to_html
 
 def index(request):
     if request.method == 'POST':
@@ -42,22 +42,31 @@ def calculate(request):
                 vector.append(parse_fraction(vector_value))
 
             result = None
+            frame = None
             if method == 'gauss':
                 solver = GaussMethod(matrix, vector)
+                frame = solver.gauss_method()
                 result = solver.solve_and_log()
             elif method == 'gauss_jordan':
                 solver = GaussJordanMethod(matrix, vector)
-                solver.run()
+                frame = solver.run()
                 result = solver.solve_and_log()
-            elif method == 'cramer':
-                solver = CramerMethod(matrix, vector)
-                result = solver.solve()
 
             if result and 'solution' in result and result['solution'] is not None and result['solution'] != 'Crammer':
                 formatted_solution = [format_number(x) for x in result['solution']]
                 result['formatted_solution'] = formatted_solution
 
-            return render(request, 'calculator/result.html', {'result': result})
+            # Preparar HTML para ecuación, resumen y pasos
+            equation_html = equation_to_html(matrix, vector)
+            summary_html = summary_to_html(result)
+            frame_html = frame_to_html(frame) if frame else ''
+
+            return render(request, 'calculator/result.html', {
+                'result': result,
+                'equation_html': equation_html,
+                'summary_html': summary_html,
+                'frame_html': frame_html,
+            })
         except ValueError as e:
             return render(request, 'calculator/matrix_input.html', {
                 'rows': range(int(request.POST.get('rows', 0))), 

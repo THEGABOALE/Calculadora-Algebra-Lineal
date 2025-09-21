@@ -2,18 +2,8 @@
 <html>
 <head>
     <title>Calculadora de Álgebra Lineal</title>
-    <style>
-        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f9; color: #333; }
-        h1, h2 { color: #444; border-bottom: 1px solid #ccc; padding-bottom: 8px;}
-        .container { max-width: 800px; margin: auto; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
-        .error { color: #721c24; background-color: #f8d7da; border: 1px solid #f5c6cb; padding: 1rem; border-radius: 5px; margin-bottom: 1.5rem; }
-        input[type="text"] { width: 60px; padding: 8px; text-align: center; border: 1px solid #ccc; border-radius: 4px; }
-        table { border-collapse: collapse; margin-bottom: 1.5em;}
-        td { padding: 5px; }
-        button { display: inline-block; text-decoration: none; color: #fff; background-color: #007bff; padding: 12px 20px; border-radius: 5px; border: none; cursor: pointer; font-size: 16px; }
-        button:hover { background-color: #0056b3; }
-        select { padding: 8px; border-radius: 4px; border: 1px solid #ccc;}
-    </style>
+    {% load static %}
+    <link rel="stylesheet" href="{% static 'matrix_input.css' %}">
 </head>
 <body>
     <div class="container">
@@ -53,7 +43,6 @@
             <select name="method" id="method">
                 <option value="gauss">Gauss</option>
                 <option value="gauss_jordan">Gauss-Jordan</option>
-                <option value="cramer">Cramer</option>
             </select>
             <br><br>
             <button type="submit">Calcular</button>

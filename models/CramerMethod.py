@@ -1,7 +1,7 @@
 from models.Matrix import Matrix
 from typing import Any, Dict, List, Optional
 from utils.printMethods import log_step
-from utils.EquationFunctions import format_number, num_to_sub
+from linear_algebra_calculator.utils.EquationFunctions import format_number, num_to_sub
 import copy
 from math import isclose
 from helpers.inputsmatrix import inputs_matrix

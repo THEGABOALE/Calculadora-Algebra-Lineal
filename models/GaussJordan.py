@@ -28,7 +28,7 @@ from typing import Any, Dict, List, Optional, Tuple
 from math import isclose 
 from models.Matrix import Matrix
 from utils.printMethods import log_step, print_summary, print_equation, print_frame
-from utils.EquationFunctions import format_number
+from linear_algebra_calculator.utils.EquationFunctions import format_number
 from models.system_solver.GaussSolver import analyze_argumented, solve_from_upper
 from helpers.inputsmatrix import inputs_matrix
 
