@@ -1,0 +1,101 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Calculadora de Álgebra Lineal - Resultado</title>
+    <style>
+        body { font-family: sans-serif; margin: 2em; background-color: #f4f4f9; color: #333; }
+        h1, h2 { color: #444; border-bottom: 2px solid #007bff; padding-bottom: 10px; }
+        .container { max-width: 800px; margin: auto; padding: 20px; background: #fff; border-radius: 8px; box-shadow: 0 0 10px rgba(0,0,0,0.1); }
+        .result-box { border: 1px solid #ddd; padding: 1.5em; margin-top: 1.5em; border-radius: 5px; background-color: #fafafa; }
+        .status { font-weight: bold; padding: 5px 10px; border-radius: 3px; color: #fff; }
+        .status-unique { background-color: #28a745; }
+        .status-infinite { background-color: #ffc107; color: #333; }
+        .status-inconsistent { background-color: #dc3545; }
+        .solution-vars { margin-top: 1.5em; }
+        .variable { font-style: italic; font-weight: bold; color: #0056b3; }
+        a { display: inline-block; text-decoration: none; color: #fff; background-color: #007bff; padding: 10px 15px; border-radius: 5px; margin-top: 20px; }
+        a:hover { background-color: #0056b3; }
+        .debug-info { margin-top: 20px; font-size: 0.8em; color: #666; }
+        .debug-info pre { background: #eee; padding: 10px; border-radius: 4px; white-space: pre-wrap; }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Resultado del Cálculo</h1>
+
+        {% if result %}
+            <div class="result-box">
+                <h2>Análisis del Sistema</h2>
+                <p>
+                    Estado: 
+                    <span class="status 
+                        {% if result.status == 'unique' %}status-unique
+                        {% elif result.status == 'infinite' %}status-infinite
+                        {% elif result.status == 'inconsistent' %}status-inconsistent
+                        {% endif %}">
+                        {% if result.status == 'unique' %}
+                            Solución Única
+                        {% elif result.status == 'infinite' %}
+                            Infinitas Soluciones
+                        {% elif result.status == 'inconsistent' %}
+                            Sistema Inconsistente (Sin Solución)
+                        {% else %}
+                            {{ result.status }}
+                        {% endif %}
+                    </span>
+                </p>
+
+                {% if result.status == 'unique' or result.status == 'infinite' %}
+                    <div class="solution-vars">
+                        <h3>Solución Particular:</h3>
+                        {% if result.formatted_solution %}
+                            {% for val in result.formatted_solution %}
+                                <p><span class="variable">x<sub>{{ forloop.counter }}</sub></span> = {{ val }}</p>
+                            {% endfor %}
+                        {% else %}
+                            <p>No se encontró una solución particular.</p>
+                        {% endif %}
+                    </div>
+                {% endif %}
+
+                {% if result.status == 'infinite' %}
+                    <div class="solution-vars">
+                        <h3>Variables:</h3>
+                        <p><strong>Variables Básicas:</strong> 
+                            {% for var_index in result.basic_vars %}
+                                x<sub>{{ var_index|add:1 }}</sub>{% if not forloop.last %}, {% endif %}
+                            {% endfor %}
+                        </p>
+                        <p><strong>Variables Libres:</strong> 
+                            {% for var_index in result.free_vars %}
+                                x<sub>{{ var_index|add:1 }}</sub>{% if not forloop.last %}, {% endif %}
+                            {% endfor %}
+                        </p>
+                    </div>
+                {% endif %}
+                
+                {% if result.status == 'inconsistent' and result.inconsistent_rows %}
+                     <p>El sistema es inconsistente en la(s) fila(s): 
+                        {% for row_index in result.inconsistent_rows %}
+                            {{ row_index|add:1 }}{% if not forloop.last %}, {% endif %}
+                        {% endfor %}
+                    </p>
+                {% endif %}
+
+            </div>
+
+            <div class="debug-info">
+                <p>Información de depuración (datos crudos):</p>
+                <pre>{{ result }}</pre>
+            </div>
+
+        {% else %}
+            <div class="result-box status-inconsistent">
+                <p>No se pudo obtener un resultado. Revisa las entradas y asegúrate de que todos los campos estén completos con valores numéricos o fracciones válidas.</p>
+            </div>
+        {% endif %}
+
+        <a href="/">Realizar Nueva Calculación</a>
+    </div>
+</body>
+</html>
