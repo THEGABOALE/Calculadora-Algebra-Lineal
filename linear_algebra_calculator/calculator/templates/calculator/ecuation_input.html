@@ -13,7 +13,7 @@
             <p class="error">{{ error }}</p>
         {% endif %}
 
-        <form action="/calculate/" method="post">
+        <form action="/ecuationResolution/" method="post">
             {% csrf_token %}
             <input type="hidden" name="rows" value="{{ num_rows }}">
             <input type="hidden" name="cols" value="{{ num_cols }}">

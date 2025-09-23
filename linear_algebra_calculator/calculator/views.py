@@ -7,14 +7,14 @@ from utils.html_display import equation_to_html, summary_to_html, frame_to_html
 def home_page(request):
     return render(request, 'calculator/home.html')
 
-def system_solver(request):
+def ecuationInput(request):
     if request.method == 'POST':
         rows = int(request.POST['rows'])
         cols = int(request.POST['cols'])
-        return render(request, 'calculator/matrix_input.html', {'rows': range(rows), 'cols': range(cols), 'num_rows': rows, 'num_cols': cols})
-    return render(request, 'calculator/system_solver.html')
+        return render(request, 'calculator/ecuation_input.html', {'rows': range(rows), 'cols': range(cols), 'num_rows': rows, 'num_cols': cols})
+    return render(request, 'calculator/make_matrix.html')
 
-def calculate(request):
+def ecuationResolution(request):
     if request.method == 'POST':
         try:
             rows = int(request.POST['rows'])

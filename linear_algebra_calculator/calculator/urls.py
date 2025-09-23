@@ -3,6 +3,6 @@ from . import views
 
 urlpatterns = [
     path('home/', views.home_page, name='home'),
-    path('systemsolver/', views.system_solver, name='system_solver'),
-    path('calculate/', views.calculate, name='calculate'),
+    path('ecuationInput/', views.ecuationInput, name='ecuationInput'),
+    path('ecuationResolution/', views.ecuationResolution, name='ecuationResolution'),
 ]
