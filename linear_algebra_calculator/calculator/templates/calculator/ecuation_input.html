@@ -3,6 +3,7 @@
 <head>
     <title>Calculadora de Álgebra Lineal</title>
     {% load static %}
+    {% load matrix_extras %}
     <link rel="stylesheet" href="{% static 'css/matrix_input.css' %}">
 </head>
 <body>
@@ -18,22 +19,30 @@
             <input type="hidden" name="rows" value="{{ num_rows }}">
             <input type="hidden" name="cols" value="{{ num_cols }}">
             
+
             <h2>Matriz A</h2>
             <table>
                 {% for i in rows %}
                     <tr>
                         {% for j in cols %}
-                            <td><input type="text" name="matrix_{{ i }}_{{ j }}" size="5"></td>
+                            <td>
+                                <input type="text" name="matrix_{{ i }}_{{ j }}" size="5"
+                                    value="{{ matrix_values_list|index:forloop.parentloop.counter0|index:forloop.counter0 }}">
+                            </td>
                         {% endfor %}
                     </tr>
                 {% endfor %}
             </table>
 
+
             <h2>Vector b</h2>
             <table>
                 {% for i in rows %}
                     <tr>
-                        <td><input type="text" name="vector_{{ i }}" size="5"></td>
+                        <td>
+                            <input type="text" name="vector_{{ i }}" size="5"
+                                value="{{ vector_values_list|index:forloop.counter0 }}">
+                        </td>
                     </tr>
                 {% endfor %}
             </table>

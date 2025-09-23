@@ -1,0 +1,38 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+    <title>Calculadora de Álgebra Lineal</title>
+    {% load static %}
+    <script src="https://cdn.tailwindcss.com"></script>
+    <link rel="stylesheet" href="{% static 'css/calculator_main.css' %}">
+</head>
+<body class="relative min-h-screen bg-slate-50 overflow-x-hidden">
+    <!-- Parallax background -->
+    <div class="fixed inset-0 overflow-hidden z-0">
+        <div class="absolute top-1/4 left-1/4 w-64 h-64 bg-blue-100 rounded-full opacity-80 animate-float" style="animation-delay: 0s"></div>
+        <div class="absolute top-1/3 right-1/4 w-48 h-48 bg-purple-100 rounded-full opacity-80 animate-float" style="animation-delay: 1s"></div>
+        <div class="absolute bottom-1/4 left-1/3 w-56 h-56 bg-indigo-100 rounded-full opacity-80 animate-float" style="animation-delay: 2s"></div>
+        <div class="absolute bottom-1/3 right-1/3 w-40 h-40 bg-cyan-100 rounded-full opacity-80 animate-float" style="animation-delay: 3s"></div>
+    </div>
+
+    <main class="relative z-10 flex flex-col items-center justify-center min-h-screen opacity-80">
+        <div class="glass max-w-xl w-full mx-auto rounded-2xl p-10 shadow-2xl text-center">
+            <h1 class="text-3xl md:text-4xl font-bold text-slate-800 mb-6">Calculadora de Álgebra Lineal</h1>
+            <p class="text-lg text-slate-600 mb-10">Selecciona el tipo de cálculo que deseas realizar:</p>
+            <div class="flex flex-col gap-6">
+                <a href="/ecuationInput/" class="glass-option bg-blue-600/90 hover:bg-blue-700/90 text-white">
+                    Resolución de Sistemas de Ecuaciones Lineales
+                </a>
+                <a href="#" class="glass-option bg-purple-600/90 hover:bg-purple-700/90 text-white">
+                    Resolución de Operaciones con Vectores
+                </a>
+                <a href="/home/" class="backbutton bg-green-600/90 hover:bg-green-700/90 text-white">
+                    Volver a Home Page
+                </a>
+            </div>
+        </div>
+    </main>
+</body>
+</html>
