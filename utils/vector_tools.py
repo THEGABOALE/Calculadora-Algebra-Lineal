@@ -1,18 +1,24 @@
 from __future__ import annotations
 from typing import List, Tuple
 from models.Vector import Vector
-from utils.EquationFunctions import format_number
+from utils.EquationFunctions import format_number, parse_fraction
 
-# ---------- Entrada y helpers ----------
+# -------- Entrada y helpers --------
 
 def read_vector(dim: int, prompt: str = "") -> Vector:
-    """Lee un vector de dimensión 'dim' desde input."""
+    """Lee un vector de dimensión 'dim' desde input (admite fracciones tipo 3/4)."""
     if prompt:
         print(prompt)
-    vals = input(f"Ingresa {dim} valores separados por espacio: ").strip().split()
-    if len(vals) != dim:
-        raise ValueError(f"Se esperaban {dim} valores.")
-    return Vector([float(x) for x in vals])
+    while True:
+        raw = input(f"Ingresa {dim} valores separados por espacio: ").strip().split()
+        if len(raw) != dim:
+            print(f"Se esperaban {dim} valores. Intenta de nuevo.")
+            continue
+        try:
+            vals = [parse_fraction(x) for x in raw]
+            return Vector(vals)
+        except Exception as e:
+            print(f"Entrada inválida ({e}). Intenta de nuevo.")
 
 def read_vectors(cnt: int, dim: int, prefix: str = "v") -> List[Vector]:
     """Lee 'cnt' vectores de dimensión 'dim'."""
@@ -32,49 +38,31 @@ def pretty_linear_comb(coeffs: List[float], vectors: List[Vector]) -> str:
         parts.append(f"{s}·v{i}")
     return " + ".join(parts)
 
-# ---------- Propiedades en R^n ----------
+# -------- Propiedades en R^n --------
 
 def verify_vector_properties(v: Vector, w: Vector, u: Vector, c: float, d: float, tol: float = 1e-12) -> List[Tuple[str, bool, str]]:
-    """
-    Devuelve lista de (propiedad, cumple, detalle).
-    Propiedades: conmutativa, asociativa, existencia de 0, opuesto, distributivas.
-    """
-    # conmutativa: v + w = w + v
+    """Devuelve lista de (propiedad, cumple, detalle)."""
     p1 = v.add(w).equals(w.add(v), tol)
-
-    # asociativa: (u + v) + w = u + (v + w)
     p2 = (u.add(v).add(w)).equals(u.add(v.add(w)), tol)
-
-    # existencia de 0: v + 0 = v
     z = zero_vector(v.n)
     p3 = v.add(z).equals(v, tol)
-
-    # opuesto: v + (-v) = 0
     p4 = v.add(v.scale(-1)).equals(z, tol)
-
-    # A(u+v) = Au + Av  (distributiva vectorial) -> con escalares c,d simulamos A como escalar: c(u+v) = cu + cv
     p5 = u.add(v).scale(c).equals(u.scale(c).add(v.scale(c)), tol)
-
-    # (c+d)u = cu + du (distributiva escalar)
     p6 = u.scale(c + d).equals(u.scale(c).add(u.scale(d)), tol)
-
     results = [
         ("Conmutativa: v + w = w + v", p1, f"{v} + {w} {'=' if p1 else '≠'} {w} + {v}"),
         ("Asociativa: (u + v) + w = u + (v + w)", p2, f"({u}+{v})+{w} {'=' if p2 else '≠'} {u}+({v}+{w})"),
         ("Existencia de 0: v + 0 = v", p3, f"{v} + {z} {'=' if p3 else '≠'} {v}"),
         ("Vector opuesto: v + (-v) = 0", p4, f"{v} + ({v.scale(-1)}) {'=' if p4 else '≠'} {z}"),
-        ("Distributiva A(u+v)=Au+Av (simulada): c(u+v) = cu + cv", p5, f"{c}·({u}+{v}) {'=' if p5 else '≠'} {u.scale(c)} + {v.scale(c)}"),
+        ("Distributiva c(u+v) = cu + cv", p5, f"{c}·({u}+{v}) {'=' if p5 else '≠'} {u.scale(c)} + {v.scale(c)}"),
         ("Distributiva (c+d)u = cu + du", p6, f"({c}+{d})·{u} {'=' if p6 else '≠'} {u.scale(c)} + {u.scale(d)}"),
     ]
     return results
 
-# ---------- Producto Ax por regla fila–vector (solo visual) ----------
+# -------- Producto Ax y verificación --------
 
 def matrix_vector_product_steps(A: List[List[float]], x: Vector) -> Tuple[List[float], List[str]]:
-    """
-    Calcula y explica cada entrada (i-ésima fila de A) · x.
-    Retorna (resultado, pasos_formateados)
-    """
+    """Calcula y explica cada entrada (fila i de A) · x."""
     m = len(A)
     n = len(A[0]) if m else 0
     if x.n != n:
@@ -88,3 +76,16 @@ def matrix_vector_product_steps(A: List[List[float]], x: Vector) -> Tuple[List[f
         y.append(val)
         steps.append(" + ".join(terms) + f"  =  {format_number(val)}")
     return y, steps
+
+def ax_check(A: List[List[float]], x_list: List[float], b_list: List[float], tol: float = 1e-9):
+    """Devuelve (A*x, ok) con ok=True si A*x ≈ b bajo tolerancia."""
+    m = len(A)
+    n = len(A[0]) if m else 0
+    if len(x_list) != n:
+        raise ValueError("Dimensiones incompatibles entre A y x.")
+    y = [sum(A[i][j] * x_list[j] for j in range(n)) for i in range(m)]
+    ok = (len(b_list) == m) and all(abs(y[i] - b_list[i]) <= tol for i in range(m))
+    return y, ok
+
+def pretty_vector(lst: List[float]) -> str:
+    return "[" + ", ".join(format_number(v) for v in lst) + "]"
