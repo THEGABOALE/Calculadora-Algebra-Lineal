@@ -17,4 +17,30 @@ def inputs_matrix() -> tuple[int, int]:
             print(e)
     return int(rows), int(cols)
 
-__all__ = ['inputs_matrix']
+# --- NUEVO: leer SOLO una matriz A (sin pedir b) ---
+def read_matrix_only(rows: int, cols: int) -> list[list[float]]:
+    """
+    Lee una matriz de tamaño rows x cols pidiendo solo los coeficientes.
+    Acepta fracciones tipo '3/4' o decimales.
+    No modifica nada del flujo de inputs_matrix.
+    """
+    # import local para no tocar cabecera ni crear dependencias globales
+    from utils.EquationFunctions import parse_fraction
+
+    A: list[list[float]] = []
+    for i in range(rows):
+        while True:
+            raw = input(f"Ingrese {cols} valores para la fila {i+1}: ").strip().split()
+            if len(raw) != cols:
+                print(f"Se esperaban {cols} valores. Intenta de nuevo.")
+                continue
+            try:
+                row = [parse_fraction(x) for x in raw]
+                A.append(row)
+                break
+            except Exception as e:
+                print(f"Entrada inválida ({e}). Intenta de nuevo.")
+    return A
+
+
+__all__ = ['inputs_matrix', 'read_matriz_only']

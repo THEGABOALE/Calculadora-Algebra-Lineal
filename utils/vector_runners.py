@@ -7,8 +7,8 @@ from utils.vector_tools import (
     matrix_vector_product_steps, pretty_linear_comb,
     ax_check, pretty_vector
 )
-from utils.printMethods import print_frame, print_summary, print_equation, print_parametric_solution_from_rref
-from helpers.inputsmatrix import inputs_matrix
+from helpers.inputsmatrix import inputs_matrix, read_matrix_only
+from utils.printMethods import (print_frame, print_summary, print_equation, print_parametric_solution_from_rref)
 from utils.EquationFunctions import format_number, parse_fraction
 
 # ------- Validadores simples (positivos) -------
@@ -100,15 +100,65 @@ def run_vector_combination():
         print("b   =", pretty_vector(b_list))
         print("¿Ax=b? ->", "OK ✅" if ok else "NO ❌")
 
-# -------- Runner 3: Producto Ax con regla fila–vector --------
 def run_matrix_times_vector():
-    """Pide A (m×n) y x (n) y muestra Ax con el desarrollo fila–vector."""
+    """
+    Pide A (m×n) y x (n), muestra Ax por la regla fila–vector y además:
+      • resuelve A·c = b con b:=Ax usando Gauss–Jordan,
+      • imprime TODO el proceso (pivotes, eliminaciones, RREF),
+      • muestra el summary (única / infinita / inconsistente),
+      • concluye si b es combinación lineal de las columnas de A,
+      • si hay infinitas, imprime la forma paramétrica (parámetros s1, s2, ...),
+      • verifica Ax=b con la solución particular.
+    """
     print("\n--- Producto Ax por regla fila–vector ---")
     rows, cols = inputs_matrix()
-    A, _ = Matrix.make_equation(rows, cols)  # solo A
+    A = read_matrix_only(rows, cols)  # solo coeficientes
     x = read_vector(cols, "Vector x:")
+
+    # 1) Desarrollo fila–vector
     y, steps = matrix_vector_product_steps(A, x)
     print("\nA x =")
     for line in steps:
         print("  ", line)
     print("\nResultado Ax =", Vector(y))
+
+    # 2) Gauss–Jordan sobre A·c=b (b := Ax) — mostramos TODO el proceso
+    print("\n--- Gauss–Jordan para A·c = b (con b := Ax) ---")
+    gj = GaussJordanMethod(A, y)
+    gj.run()
+    result = gj.solve_and_log()
+
+    # proceso completo con pivoteo, eliminaciones y RREF
+    print_frame(gj.frame)
+
+    # resumen (única / infinita / inconsistente)
+    print_summary(result)
+
+    status = result.get("status")
+
+    # 3) Si hay infinitas: forma paramétrica con parámetros s1, s2, ...
+    if status == "infinite":
+        print("\n--- Familia de soluciones (forma paramétrica) ---")
+        # Nota pedagógica más explícita
+        print("Existen infinitas combinaciones: cada variable libre se toma como un parámetro sₖ,")
+        print("y las variables básicas se expresan en función de esos parámetros.\n")
+        print(print_parametric_solution_from_rref(gj.matriz, param_base="s"))
+
+    # 4) Verificación explícita Ax=b con la solución particular
+    x_part = result.get("solution")
+    if x_part is not None:
+        y_check, ok = ax_check(A, x_part, y)
+        print("\n--- Chequeo Ax = b con la solución particular (libres=0) ---")
+        print("c* =", pretty_vector(x_part))
+        print("A·c* =", pretty_vector(y_check))
+        print("b    =", pretty_vector(y))
+        print("¿A·c* = b? ->", "OK ✅" if ok else "NO ❌")
+
+    # 5) Conclusión didáctica
+    if status == "unique":
+        print("\nConclusión: b ES una combinación lineal de las columnas de A, y es ÚNICA.")
+    elif status == "infinite":
+        print("\nConclusión: b ES una combinación lineal de las columnas de A, en INFINITAS formas (ver arriba).")
+    elif status == "inconsistent":
+        # Con b := Ax nunca debería pasar; si ocurre, hay error de entrada
+        print("\nConclusión: Inconsistente (esto no debería ocurrir con b := Ax). Revisa los datos.")

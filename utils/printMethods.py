@@ -64,7 +64,6 @@ def print_frame(frame: Frame, show_det: bool = True, sep: str = "-"*40)->None:
         print(sep)
     
 
-
 def print_equation(matriz: list[list], vector: list[float]) -> str:
     filas = len(matriz)
     columnas = len(matriz[0])
@@ -140,5 +139,70 @@ def print_summary(result: Optional[Any]):
         print("Solución particular: None (sistema inconsistente)")
     print("=================================")
     
+# ---- NUEVO/ACTUALIZADO: forma paramétrica desde RREF ----
+def print_parametric_solution_from_rref(U: List[List[float]], tol: float = 1e-12, param_base: str = "s") -> str:
+    """
+    Recibe una aumentada en RREF (m x (n+1)) y devuelve una representación
+    legible de la solución en forma paramétrica:
+      - Variables libres = parámetros s1, s2, ...
+      - Variables básicas en función de esos parámetros.
+    Si el sistema es inconsistente, lo indica.
+    """
+    if not U:
+        return "Sistema vacío: solución única (vector vacío)."
 
-__all__ = ["log_step", "format_matrix", "print_frame", "print_equation", "print_summary"]
+    m = len(U)
+    n = len(U[0]) - 1
+    rhs_col = n
+
+    # Fila inconsistente: 0..0 | c≠0
+    for r in range(m):
+        if all(abs(U[r][c]) <= tol for c in range(n)) and abs(U[r][rhs_col]) > tol:
+            return "Sistema inconsistente (0 = c≠0)."
+
+    # Detectar pivotes (primer 1 por fila)
+    pivot_col = [-1] * m
+    has_pivot = [False] * n
+    for r in range(m):
+        for c in range(n):
+            if abs(U[r][c] - 1.0) <= tol and all(abs(U[r][k]) <= tol for k in range(c)):
+                pivot_col[r] = c
+                has_pivot[c] = True
+                break
+
+    basic = [c for c in range(n) if has_pivot[c]]
+    free  = [c for c in range(n) if not has_pivot[c]]
+
+    # asignar nombres de parámetros s1, s2, ...
+    param_name = {c: f"{param_base}{idx+1}" for idx, c in enumerate(free)}
+
+    # Única solución
+    if not free:
+        x = [0.0] * n
+        for r, c in enumerate(pivot_col):
+            if c != -1: x[c] = U[r][rhs_col]
+        xs = ", ".join(f"x{num_to_sub(i+1)} = {format_number(x[i])}" for i in range(n))
+        return "Única solución:\n" + xs
+
+    # Infinitas: x_basic = rhs - sum(coeff*param)
+    lines = []
+    for r in range(m):
+        c = pivot_col[r]
+        if c == -1: continue
+        parts = [format_number(U[r][rhs_col])]
+        for j in range(c+1, n):
+            coeff = U[r][j]
+            if abs(coeff) <= tol: continue
+            sgn = "-" if coeff > 0 else "+"
+            mag = abs(coeff)
+            mag_str = "" if abs(mag-1.0) <= tol else format_number(mag)
+            parts.append(f"{sgn} {mag_str}{param_name.get(j, f'x{num_to_sub(j+1)}')}".strip())
+        lines.append(f"x{num_to_sub(c+1)} = " + (" ".join(parts)))
+
+    # Declaración de parámetros
+    params = ", ".join(f"x{num_to_sub(j+1)} = {param_name[j]}" for j in free)
+    lines.append(f"(Parámetros: {params})")
+    return "\n".join(lines)
+
+___all__ = ["log_step", "format_matrix", "print_frame", "print_equation",
+           "print_summary", "print_parametric_solution_from_rref"]
