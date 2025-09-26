@@ -89,3 +89,49 @@ def ax_check(A: List[List[float]], x_list: List[float], b_list: List[float], tol
 
 def pretty_vector(lst: List[float]) -> str:
     return "[" + ", ".join(format_number(v) for v in lst) + "]"
+
+
+def linear_combination_verification_steps(coeffs: List[float], vectors: List[Vector], b_list: List[float]) -> Tuple[List[float], List[str]]:
+    """
+    Genera el desarrollo 'x1 v1 + x2 v2 + ...' componente a componente y el resultado final.
+    Retorna (y, steps), donde y = sum_i (x_i * v_i), y 'steps' son líneas tipo:
+       x1* v1(j) + x2* v2(j) + ... = b_j
+    """
+    if not vectors:
+        return [], ["(Sin vectores)"]
+
+    m = vectors[0].n
+    k = len(vectors)
+    if any(v.n != m for v in vectors):
+        raise ValueError("Todos los vectores deben tener la misma dimensión.")
+    if len(coeffs) != k:
+        raise ValueError("La cantidad de coeficientes debe coincidir con la cantidad de vectores.")
+    if len(b_list) != m:
+        raise ValueError("La dimensión de b no coincide con los vectores.")
+
+    # y = sum_i x_i * v_i
+    y = [0.0]*m
+    steps = []
+    for j in range(m):
+        term_strs = []
+        acc = 0.0
+        for i in range(k):
+            c = coeffs[i]
+            v_ij = vectors[i].data[j]
+            acc += c * v_ij
+            c_txt   = format_number(c)
+            vij_txt = format_number(v_ij)
+            term_strs.append(f"{c_txt}·{vij_txt}")
+        y[j] = acc
+        steps.append(" + ".join(term_strs) + f"  =  {format_number(acc)}   (objetivo: {format_number(b_list[j])})")
+
+    return y, steps
+
+
+def pretty_equation_vectorial(prefix_x: str, k: int) -> str:
+    """
+    Devuelve: 'Ecuación vectorial: x1·v1 + x2·v2 + ... + xk·vk = b'
+    """
+    parts = [f"{prefix_x}{i}·v{i}" for i in range(1, k+1)]
+    return "Ecuación vectorial: " + " + ".join(parts) + " = b"
+

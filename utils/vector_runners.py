@@ -5,7 +5,7 @@ from models.Vector import Vector
 from utils.vector_tools import (
     read_vector, read_vectors, verify_vector_properties,
     matrix_vector_product_steps, pretty_linear_comb,
-    ax_check, pretty_vector
+    ax_check, pretty_vector, linear_combination_verification_steps, pretty_equation_vectorial
 )
 from helpers.inputsmatrix import inputs_matrix, read_matrix_only
 from utils.printMethods import (print_frame, print_summary, print_equation, print_parametric_solution_from_rref)
@@ -50,13 +50,14 @@ def run_vector_props():
 # -------- Runner 2: Combinación lineal / Ecuación vectorial --------
 def run_vector_combination():
     """
-    Pide k vectores v_i en R^m y un vector objetivo b, construye A=[v1 ... vk],
-    resuelve A·c=b con Gauss–Jordan y muestra:
-      - planteo algebraico,
-      - frame de operaciones,
-      - resumen,
-      - forma paramétrica (si aplica),
-      - verificación Ax=b con la solución particular (libres=0).
+    Combinación lineal / Ecuación vectorial.
+    Flujo:
+      1) Lee v1..vk (columna) en R^m y b.
+      2) Construye A = [v1 v2 ... vk] y plantea 'Ecuación vectorial: x1·v1 + ... + xk·vk = b'.
+      3) Resuelve A·x = b con Gauss–Jordan, imprime frame y summary.
+      4) Si infinite -> imprime forma paramétrica (RREF) con parámetros s1, s2, ...
+      5) Verifica explícitamente x1 v1 + ... + xk vk = b con la solución particular (libres = 0).
+      6) Conclusión (unique / infinite / inconsistent).
     """
     print("\n--- Combinación lineal / Ecuación vectorial ---")
     m = _read_positive_int("Dimensión de los vectores (m): ")
@@ -67,13 +68,13 @@ def run_vector_combination():
     print("\nVector objetivo b:")
     b = read_vector(m)
 
-    # Construir A con v_i como columnas
+    # A con v_i como columnas
     A = [[vecs[j].data[i] for j in range(k)] for i in range(m)]
     b_list = b.data[:]
 
     # Planteo
-    print("\nPlanteo:  A·c = b  con  A = [v1 v2 ... vk]")
-    print("Combinación: c1·v1 + c2·v2 + ... + ck·vk")
+    print("\nPlanteo:  A·x = b  con  A = [v1 v2 ... vk]")
+    print(pretty_equation_vectorial("x", k))
     print(print_equation(A, b_list))
 
     # Resolver con Gauss–Jordan
@@ -81,24 +82,36 @@ def run_vector_combination():
     gj.run()
     result = gj.solve_and_log()
 
+    # Proceso (frame) + summary
     print_frame(gj.frame)
     print(print_equation(A, b_list))
     print_summary(result)
 
+    status = result.get("status")
+    x_part = result.get("solution")  # solución particular (libres = 0) si no inconsistent
+
     # Forma paramétrica si hay infinitas soluciones
-    if result.get("status") == "infinite":
-        print("\n--- Forma paramétrica (RREF) ---")
+    if status == "infinite":
+        print("\n--- Familia de soluciones (forma paramétrica) ---")
         print(print_parametric_solution_from_rref(gj.matriz))
 
-    # Verificación Ax=b con la solución particular (libres=0)
-    x_part = result.get("solution")
+    # Verificación explícita x1 v1 + ... + xk vk = b con x_part
     if x_part is not None:
-        y, ok = ax_check(A, x_part, b_list)
-        print("\n--- Verificación Ax = b (con solución particular) ---")
-        print("x* =", pretty_vector(x_part))
-        print("Ax  =", pretty_vector(y))
-        print("b   =", pretty_vector(b_list))
-        print("¿Ax=b? ->", "OK ✅" if ok else "NO ❌")
+        y, steps = linear_combination_verification_steps(x_part, vecs, b_list)
+        print("\n--- Verificación: x1·v1 + x2·v2 + ... + xk·vk = b (solución particular) ---")
+        for line in steps:
+            print("  ", line)
+        print("\nx*  =", pretty_vector(x_part))
+        print("A·x* =", pretty_vector(y))
+        print("b    =", pretty_vector(b_list))
+
+    # Conclusión
+    if status == "unique":
+        print("\nConclusión: b ES combinación lineal de {v1,...,vk} de forma ÚNICA.")
+    elif status == "infinite":
+        print("\nConclusión: b ES combinación lineal de {v1,...,vk} en INFINITAS formas (ver paramétrica).")
+    else:
+        print("\nConclusión: b NO es combinación lineal de {v1,...,vk}.")
 
 def run_matrix_times_vector():
     """
@@ -162,3 +175,99 @@ def run_matrix_times_vector():
     elif status == "inconsistent":
         # Con b := Ax nunca debería pasar; si ocurre, hay error de entrada
         print("\nConclusión: Inconsistente (esto no debería ocurrir con b := Ax). Revisa los datos.")
+        
+# ======== NUEVO: Runner de cálculo de operaciones vectoriales ========
+
+def _menu_vector_ops():
+    print("\n--- Operaciones con vectores ---")
+    print("[1] Suma: v + w")
+    print("[2] Resta: v - w")
+    print("[3] Escalamiento: c · v")
+    print("[4] Combinación: c · u + d · v")
+    print("[5] Combinación avanzada: u + c · v + d · w   (ej. u - 2v)")
+    print("[6] Producto punto: v · w")
+    print("[0] Volver")
+    return input("Selecciona una opción: ").strip()
+
+def run_vector_calc():
+    """
+    Permite escoger una operación y la resuelve mostrando el desarrollo.
+    Usa parse_fraction para admitir fracciones (p. ej. 3/4, -5/2)
+    y format_number para formatear resultados.
+    """
+    while True:
+        opt = _menu_vector_ops()
+
+        if opt == "0":
+            print("Volviendo al menú de Vectores…")
+            return
+
+        # Dimensión para todas las operaciones
+        try:
+            n = _read_positive_int("Dimensión n: ")
+        except Exception:
+            continue
+
+        if opt == "1":  # v + w
+            v = read_vector(n, "Vector v")
+            w = read_vector(n, "Vector w")
+            r = v.add(w)
+            print(f"\nv = {v}")
+            print(f"w = {w}")
+            print(f"v + w = {r}")
+
+        elif opt == "2":  # v - w
+            v = read_vector(n, "Vector v")
+            w = read_vector(n, "Vector w")
+            r = v.sub(w)
+            print(f"\nv = {v}")
+            print(f"w = {w}")
+            print(f"v - w = {r}")
+
+        elif opt == "3":  # c · v
+            v = read_vector(n, "Vector v")
+            c = _read_scalar("Escalar c: ")
+            r = v.scale(c)
+            print(f"\nv = {v}")
+            print(f"c = {format_number(c)}")
+            print(f"c · v = {r}")
+
+        elif opt == "4":  # c · u + d · v
+            u = read_vector(n, "Vector u")
+            v = read_vector(n, "Vector v")
+            c = _read_scalar("Escalar c: ")
+            d = _read_scalar("Escalar d: ")
+            r = u.scale(c).add(v.scale(d))
+            print(f"\nu = {u}")
+            print(f"v = {v}")
+            print(f"c = {format_number(c)}, d = {format_number(d)}")
+            print(f"c·u + d·v = {r}")
+
+        elif opt == "5":  # u + c · v + d · w (ej.: u - 2v => c=-2, d=0)
+            u = read_vector(n, "Vector u")
+            v = read_vector(n, "Vector v")
+            w = read_vector(n, "Vector w")
+            c = _read_scalar("Escalar c (para v): ")
+            d = _read_scalar("Escalar d (para w): ")
+            r = u.add(v.scale(c)).add(w.scale(d))
+            print(f"\nu = {u}")
+            print(f"v = {v}")
+            print(f"w = {w}")
+            print(f"c = {format_number(c)}, d = {format_number(d)}")
+            print(f"u + c·v + d·w = {r}")
+            print("\nEjemplo: para u - 2v usa c = -2 y d = 0")
+
+        elif opt == "6":  # v · w (producto punto)
+            v = read_vector(n, "Vector v")
+            w = read_vector(n, "Vector w")
+            val = v.dot(w)
+            terms = [f"{format_number(a)}·{format_number(b)}" for a, b in zip(v.data, w.data)]
+            print(f"\nv = {v}")
+            print(f"w = {w}")
+            print("v · w =", " + ".join(terms), "=", format_number(val))
+
+        else:
+            print("Opción inválida. Intenta de nuevo.")
+            continue
+
+        input("\nPresiona Enter para continuar...")

@@ -21,6 +21,7 @@ from utils.vector_runners import (
     run_vector_props,
     run_vector_combination,
     run_matrix_times_vector,
+    run_vector_calc, 
 )
 
 # ---------------------------
@@ -97,7 +98,8 @@ def _print_vectors_menu():
 
     print_header("MÓDULO DE VECTORES")
     items = [
-        ("1", "Propiedades en R^n"),
+        #("1", "Propiedades en R^n"),
+        ("1", "Operaciones con Vectores"),
         ("2", "Combinación lineal / Ecuación vectorial"),
         ("3", "Producto Ax (regla fila–vector)"),
         ("0", "Volver"),
@@ -109,7 +111,8 @@ def _print_vectors_menu():
 def _vectors_menu_loop():
     """Bucle del submenú de vectores."""
     actions = {
-        "1": ("Propiedades en R^n", run_vector_props),
+        #"4": ("Propiedades en R^n", run_vector_props),
+        "1": ("Cálculo de Vectores", run_vector_calc),
         "2": ("Combinación lineal / Ecuación vectorial", run_vector_combination),
         "3": ("Producto Ax (fila–vector)", run_matrix_times_vector),
     }
