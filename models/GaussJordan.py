@@ -71,6 +71,30 @@ class GaussJordanMethod(Matrix):
         # Determinante: solo relevante si A es cuadrada y no escalamos (aquí se escala para RREF),
         # así que lo mantenemos informativo (no lo reportamos).
         self.determinante: Optional[float] = None
+
+        #Cambios nuevos Sistemas homogeneos/ No homogeneos || Dependientes y no dependientes. 
+
+                # Validaciones adicionales
+        if not matriz or not all(isinstance(row, list) for row in matriz):
+            raise ValueError("La matriz A no puede estar vacía y debe ser una lista de listas.")
+
+        cols = len(matriz[0])
+        if not all(len(row) == cols for row in matriz):
+            raise ValueError("Todas las filas de la matriz A deben tener la misma cantidad de columnas.")
+
+        for row in matriz:
+            for val in row:
+                if not isinstance(val, (int, float)):
+                    raise TypeError("Todos los elementos de A deben ser numéricos (int o float).")
+        for val in b:
+            if not isinstance(val, (int, float)):
+                raise TypeError("Todos los elementos del vector b deben ser numéricos (int o float).")
+
+        # Detección de homogeneidad
+        self.is_homogeneous: bool = all(isclose(bi, 0.0, abs_tol=self.tolerance) for bi in b)
+        msg = "Sistema homogéneo (b = 0)" if self.is_homogeneous else "Sistema no homogéneo (b ≠ 0)"
+        log_step(self.frame, msg, aug, det=None, tag="homogeneity_check")
+
         
     # ----------------------
     # Helpers numéricos
@@ -247,6 +271,26 @@ class GaussJordanMethod(Matrix):
         log_step(self.frame, f"Variables básicas: {idxs_to_vars(basic)} | Variables libres: {idxs_to_vars(free)}", self.matriz, det=None, tag="vars")
 
         return result
+    
+    # Cambios nuevos Sistemas homogeneos/ No homogeneos || Dependientes y no dependientes.
+    
+            # Verificación de dependencia lineal
+        rank_A = info.get("rank_A", info.get("rank", 0))
+        n_vars = self.columnas - 1
+        dependent = rank_A < min(self.filas, n_vars)
+        dep_msg = "Las filas de A son linealmente dependientes." if dependent else "Las filas de A son linealmente independientes."
+        log_step(self.frame, dep_msg, self.matriz, det=None, tag="dependency_check")
+
+        # Análisis combinado (homogeneidad + tipo de solución)
+        if self.is_homogeneous:
+            if status == "unique":
+                log_step(self.frame, "Sistema homogéneo con única solución trivial (x = 0).", self.matriz, det=None, tag="homogeneous_unique")
+            elif status == "infinite":
+                log_step(self.frame, "Sistema homogéneo con infinitas soluciones (existen vectores no triviales en el núcleo).", self.matriz, det=None, tag="homogeneous_infinite")
+        else:
+            if status == "infinite":
+                log_step(self.frame, "Sistema no homogéneo con infinitas soluciones (dependencia entre ecuaciones).", self.matriz, det=None, tag="nonhom_infinite")
+
 
     # ----------------------
     # Chequeos útiles
