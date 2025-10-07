@@ -71,6 +71,8 @@ class GaussJordanMethod(Matrix):
         # Determinante: solo relevante si A es cuadrada y no escalamos (aquí se escala para RREF),
         # así que lo mantenemos informativo (no lo reportamos).
         self.determinante: Optional[float] = None
+        # Determina si el sistema es homogéneo (todos los valores de b son 0)
+        self.is_homogeneous = all(isclose(bi, 0.0, abs_tol=self.tolerance) for bi in self.b)
         
     # ----------------------
     # Helpers numéricos
@@ -228,25 +230,71 @@ class GaussJordanMethod(Matrix):
         info = self.analyze()
         status = info.get("status")
         pivots = info.get("pivots", [])
-        log_step(self.frame, f"Resumen: Tipo de solución = {status}", self.matriz, det=None, tag="summary")
+        # Detección explícita de homogeneidad y dependencia lineal en el resumen
+        tipo_sistema = "homogéneo" if self.is_homogeneous else "no homogéneo"
+        rank_A = info.get("rank_A", info.get("rank", 0))
+        n_vars = self.columnas - 1
+        dependent = rank_A < min(self.filas, n_vars)
+        dependencia = "dependiente" if dependent else "independiente"
+        log_step(self.frame, f"Resumen: Tipo de solución = {status} | Sistema {tipo_sistema} | Filas de A {dependencia}", self.matriz, det=None, tag="summary")
 
         if status == "inconsistent":
             log_step(self.frame, "Sistema inconsistente: no existe solución", self.matriz, det=None, tag="inconsistent")
             return {**info, "solution": None}
 
-        # Solución particular (variables libres = 0)
+        # Solución particular y paramétrica
         result = solve_from_upper(self.matriz, pivots=pivots, tol=self.tolerance)
         sol = result.get("solution")
-        if sol is not None:
-            sol_str = [format_number(v) for v in sol]
-            log_step(self.frame, f"Solución particular (libres=0): [{', '.join(sol_str)}]", self.matriz, det=None, tag="solution")
-
         basic = result.get("basic_vars", [])
         free = result.get("free_vars", [])
+        parametric = result.get("parametric_solution") if "parametric_solution" in result else None
         def idxs_to_vars(idxs): return "None" if not idxs else ", ".join(f"x{(i+1)}" for i in idxs)
         log_step(self.frame, f"Variables básicas: {idxs_to_vars(basic)} | Variables libres: {idxs_to_vars(free)}", self.matriz, det=None, tag="vars")
 
-        return result
+        dep_msg = "Las filas de A son linealmente dependientes." if dependent else "Las filas de A son linealmente independientes."
+        log_step(self.frame, dep_msg, self.matriz, det=None, tag="dependency_check")
+
+        # Análisis combinado (homogeneidad + tipo de solución)
+        if self.is_homogeneous:
+            if status == "unique":
+                log_step(self.frame, "Sistema homogéneo con única solución trivial (x = 0).", self.matriz, det=None, tag="homogeneous_unique")
+                if sol is not None:
+                    sol_str = [format_number(v) for v in sol]
+                    log_step(self.frame, f"Solución trivial: [{', '.join(sol_str)}]", self.matriz, det=None, tag="trivial_solution")
+            elif status == "infinite":
+                log_step(self.frame, "Sistema homogéneo con infinitas soluciones (existen vectores no triviales en el núcleo).", self.matriz, det=None, tag="homogeneous_infinite")
+                if parametric:
+                    log_step(self.frame, f"Solución paramétrica (no trivial): {parametric}", self.matriz, det=None, tag="parametric_solution")
+        else:
+            if status == "unique":
+                if sol is not None:
+                    sol_str = [format_number(v) for v in sol]
+                    # Solución particular + no trivial
+                    log_step(self.frame, f"Solución particular + no trivial: [{', '.join(sol_str)}]", self.matriz, det=None, tag="particular_solution")
+            elif status == "infinite":
+                log_step(self.frame, "Sistema no homogéneo con infinitas soluciones (dependencia entre ecuaciones).", self.matriz, det=None, tag="nonhom_infinite")
+                # Solución general con variables libres simbólicas
+                if parametric:
+                    # Asignar nombres simbólicos a las variables libres
+                    libres = [f"s{i+1}" for i in range(len(free))]
+                    param_str = str(parametric).replace("x", "s")
+                    log_step(self.frame, f"Solución general (paramétrica): {param_str}", self.matriz, det=None, tag="parametric_solution")
+
+        # Conclusión final sobre el sistema
+        conclusion = f"Conclusión: El sistema es {tipo_sistema}, las filas de A son {dependencia}, rango(A) = {rank_A}. "
+        if self.is_homogeneous:
+            if status == "unique":
+                conclusion += f"Ax=0 con rango A = n -> única solución trivial."
+            elif status == "infinite":
+                conclusion += f"Ax=0 con rango A < n -> infinitas soluciones (no triviales)."
+        else:
+            if status == "unique":
+                conclusion += f"Ax=b con rango A = n -> única solución particular (no trivial)."
+            elif status == "infinite":
+                conclusion += f"Ax=b con rango A < n -> infinitas soluciones generales (paramétricas)."
+        log_step(self.frame, conclusion, self.matriz, det=None, tag="conclusion")
+
+        return {**result, "parametric_solution": parametric, "tipo_sistema": tipo_sistema, "dependencia": dependencia}
 
     # ----------------------
     # Chequeos útiles
