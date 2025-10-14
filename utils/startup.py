@@ -24,6 +24,8 @@ from utils.vector_runners import (
     run_vector_calc, 
 )
 
+from utils.matrix_runners import matrices_menu_loop
+
 # ---------------------------
 # Utilidades de UI
 # ---------------------------
@@ -81,7 +83,8 @@ def _print_main_menu():
         ("2", "Forma Escalonada (Gauss)"),
         ("3", "Regla de Cramer"),
         ("4", "Mostrar solo el sistema (A | b)"),
-        ("5", "Vectores ▸"),  # abre submenú
+        ("5", "Vectores ▸"),
+        ("6", "Matrices"),
         ("0", "Salir"),
     ]
     for k, label in items:
@@ -161,6 +164,10 @@ def startup():
 
         if opt == "5":
             _vectors_menu_loop()
+            continue
+        
+        if opt == "6":
+            matrices_menu_loop()
             continue
 
         action = actions.get(opt)
