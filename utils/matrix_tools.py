@@ -1,27 +1,27 @@
+# utils/matrix_tools.py
 from __future__ import annotations
 from typing import List, Tuple
-from utils.EquationFunctions import format_number, parse_fraction
+from utils.EquationFunctions import format_number
 from utils.printMethods import format_matrix
 
 Matrix = List[List[float]]
 
 # --------------------------
-# Validaciones y lecturas
+# Validaciones y formas
 # --------------------------
+def shape_of(M: Matrix) -> Tuple[int, int]:
+    return (len(M), len(M[0]) if M else 0)
+
 def same_size(A: Matrix, B: Matrix) -> bool:
     return len(A) == len(B) and (len(A[0]) if A else 0) == (len(B[0]) if B else 0)
 
 def mult_compatible(A: Matrix, B: Matrix) -> bool:
     return (len(A[0]) if A else 0) == len(B)
 
-def shape_of(M: Matrix) -> Tuple[int, int]:
-    return (len(M), len(M[0]) if M else 0)
-
 # --------------------------
-# Operaciones + pasos
+# Operaciones básicas (2 operandos)
 # --------------------------
 def add_matrices(A: Matrix, B: Matrix) -> Tuple[Matrix, str]:
-    """Suma elemento a elemento con pasos."""
     if not same_size(A, B):
         raise ValueError("Dimensiones incompatibles para suma/resta (mismas filas y columnas).")
     m, n = shape_of(A)
@@ -31,7 +31,7 @@ def add_matrices(A: Matrix, B: Matrix) -> Tuple[Matrix, str]:
         row_terms = []
         for j in range(n):
             row_terms.append(f"({format_number(A[i][j])}) + ({format_number(B[i][j])}) = {format_number(C[i][j])}")
-        steps.append("  Fila " + str(i+1) + ": " + " | ".join(row_terms))
+        steps.append(f"  Fila {i+1}: " + " | ".join(row_terms))
     return C, "\n".join(steps)
 
 def sub_matrices(A: Matrix, B: Matrix) -> Tuple[Matrix, str]:
@@ -44,7 +44,7 @@ def sub_matrices(A: Matrix, B: Matrix) -> Tuple[Matrix, str]:
         row_terms = []
         for j in range(n):
             row_terms.append(f"({format_number(A[i][j])}) - ({format_number(B[i][j])}) = {format_number(C[i][j])}")
-        steps.append("  Fila " + str(i+1) + ": " + " | ".join(row_terms))
+        steps.append(f"  Fila {i+1}: " + " | ".join(row_terms))
     return C, "\n".join(steps)
 
 def scalar_mult(alpha: float, A: Matrix) -> Tuple[Matrix, str]:
@@ -55,13 +55,12 @@ def scalar_mult(alpha: float, A: Matrix) -> Tuple[Matrix, str]:
         row_terms = []
         for j in range(n):
             row_terms.append(f"{format_number(alpha)}·({format_number(A[i][j])}) = {format_number(C[i][j])}")
-        steps.append("  Fila " + str(i+1) + ": " + " | ".join(row_terms))
+        steps.append(f"  Fila {i+1}: " + " | ".join(row_terms))
     return C, "\n".join(steps)
 
 def transpose(A: Matrix) -> Tuple[Matrix, str]:
     m, n = shape_of(A)
     T = [[A[i][j] for i in range(m)] for j in range(n)]
-    # Paso didáctico: “intercambio filas↔columnas”
     lines = []
     for j in range(n):
         moved = ", ".join(f"a_{i+1}{j+1}→t_{j+1}{i+1}" for i in range(m))
@@ -69,7 +68,6 @@ def transpose(A: Matrix) -> Tuple[Matrix, str]:
     return T, "\n".join(lines)
 
 def matmul(A: Matrix, B: Matrix) -> Tuple[Matrix, str]:
-    """Producto AB con desarrollo fila·columna explicado para cada entrada."""
     if not mult_compatible(A, B):
         raise ValueError("Dimensiones incompatibles para multiplicación (cols(A) = filas(B)).")
     m, p = len(A), len(B[0])
@@ -85,24 +83,104 @@ def matmul(A: Matrix, B: Matrix) -> Tuple[Matrix, str]:
     return C, "\n".join(steps)
 
 # --------------------------
-# Verificaciones útiles
+# Operaciones con VARIAS matrices
 # --------------------------
+def sum_many(mats: List[Matrix]) -> Tuple[Matrix, str]:
+    """Suma M1 + M2 + ... + Mk (todas del mismo tamaño)."""
+    if len(mats) < 2:
+        raise ValueError("Se requieren al menos 2 matrices para la suma.")
+    base = mats[0]
+    for M in mats[1:]:
+        if not same_size(base, M):
+            raise ValueError("Todas las matrices deben tener la misma dimensión para sumar.")
+    m, n = shape_of(base)
+    C = [[0.0 for _ in range(n)] for _ in range(m)]
+    steps = []
+    for i in range(m):
+        for j in range(n):
+            terms = [format_number(M[i][j]) for M in mats]
+            val = sum(M[i][j] for M in mats)
+            C[i][j] = val
+            steps.append(f"  s_{i+1}{j+1} = " + " + ".join(terms) + f" = {format_number(val)}")
+    return C, "\n".join(steps)
+
+def sub_many(first: Matrix, rest: List[Matrix]) -> Tuple[Matrix, str]:
+    """Resta en cadena: M1 - M2 - M3 - ... - Mk (todas del mismo tamaño)."""
+    if not rest:
+        raise ValueError("Se necesita al menos una matriz para restar a la primera.")
+    for M in rest:
+        if not same_size(first, M):
+            raise ValueError("Todas las matrices deben tener la misma dimensión para restar.")
+    mats = [first] + rest
+    m, n = shape_of(first)
+    C = [[0.0 for _ in range(n)] for _ in range(m)]
+    steps = []
+    for i in range(m):
+        for j in range(n):
+            terms = [format_number(first[i][j])] + [f"({format_number(M[i][j])})" for M in rest]
+            val = first[i][j] - sum(M[i][j] for M in rest)
+            C[i][j] = val
+            steps.append(f"  r_{i+1}{j+1} = " + " - ".join(terms) + f" = {format_number(val)}")
+    return C, "\n".join(steps)
+
+def matmul_chain(mats: List[Matrix]) -> Tuple[Matrix, str]:
+    """Producto en cadena: M1·M2·...·Mk (verifica compatibilidad paso a paso)."""
+    if len(mats) < 2:
+        raise ValueError("Se requieren al menos 2 matrices para multiplicar.")
+    current = mats[0]
+    all_steps = []
+    for idx, M in enumerate(mats[1:], start=2):
+        C, steps = matmul(current, M)
+        all_steps.append(f"Paso {idx-1}: resultado anterior · M{idx}\n" + steps)
+        current = C
+    return current, "\n\n".join(all_steps)
+
+# --------------------------
+# Pretty helper
+# --------------------------
+def pretty_show(title: str, M: Matrix) -> str:
+    m, n = shape_of(M)
+    return f"{title} ({m}x{n})\n{format_matrix(M)}\n"
+
+# --------------------------
+# Propiedades de la traspuesta (solo chequeos que no requieren otra matriz)
+# --------------------------
+def _equal_matrices(A: Matrix, B: Matrix, tol: float = 1e-12) -> bool:
+    if shape_of(A) != shape_of(B):
+        return False
+    m, n = shape_of(A)
+    for i in range(m):
+        for j in range(n):
+            if abs(A[i][j] - B[i][j]) > tol:
+                return False
+    return True
+
 def verify_transpose_props(A: Matrix) -> str:
-    """Verifica propiedades básicas: (Aᵀ)ᵀ = A; (αA)ᵀ = αAᵀ."""
+    """
+    Devuelve un texto con verificaciones básicas de la traspuesta que NO
+    requieren introducir otra matriz:
+      1) (A^T)^T = A
+      2) dim(A^T) = (n x m) si dim(A) = (m x n)
+      3) (αA)^T = α A^T  (probamos con α = 2, por ejemplo)
+    Las propiedades que necesitan otra matriz (A+B)^T = A^T + B^T y
+    (AB)^T = B^T A^T se dejan como 'no evaluadas' por falta de B.
+    """
+    m, n = shape_of(A)
+
     AT, _ = transpose(A)
     ATT, _ = transpose(AT)
-    ok_involution = ATT == [[x for x in row] for row in A]
+    ok_att = _equal_matrices(ATT, A)
 
     alpha = 2.0
     aA, _ = scalar_mult(alpha, A)
-    AT2, _ = transpose(aA)
     aAT, _ = scalar_mult(alpha, AT)
-    ok_scalar = AT2 == aAT
+    t_aA, _ = transpose(aA)
+    ok_scalar = _equal_matrices(t_aA, aAT)
 
-    msg = []
-    msg.append(f"(Aᵀ)ᵀ = A → {'✔' if ok_involution else '✘'}")
-    msg.append(f"(αA)ᵀ = αAᵀ con α={format_number(alpha)} → {'✔' if ok_scalar else '✘'}")
-    return "\n".join(msg)
-
-def pretty_show(title: str, M: Matrix) -> str:
-    return f"{title}\n{format_matrix(M)}\n"
+    lines = []
+    lines.append(f"Dimensiones: A es {m}x{n} y Aᵀ es {n}x{m}  ->  OK")
+    lines.append(f"(Aᵀ)ᵀ = A  ->  {'OK' if ok_att else 'NO'}")
+    lines.append(f"(αA)ᵀ = α·Aᵀ (probado con α = {format_number(alpha)})  ->  {'OK' if ok_scalar else 'NO'}")
+    lines.append("(A + B)ᵀ = Aᵀ + Bᵀ  ->  No evaluada (requiere B del mismo tamaño).")
+    lines.append("(A·B)ᵀ = Bᵀ·Aᵀ    ->  No evaluada (requiere B con cols(A)=filas(B)).")
+    return "\n".join(lines)
