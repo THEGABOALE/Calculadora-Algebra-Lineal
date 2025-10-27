@@ -31,6 +31,7 @@ from utils.printMethods import log_step, print_summary, print_equation, print_fr
 from utils.EquationFunctions import format_number
 from models.system_solver.GaussSolver import analyze_argumented, solve_from_upper
 from helpers.inputsmatrix import inputs_matrix
+from utils.matrix_tools import determinant, is_singular
 
 class GaussJordanMethod(Matrix):
     """
@@ -210,6 +211,17 @@ class GaussJordanMethod(Matrix):
     def run(self) -> Dict[str, Dict[str, Any]]:
         """Ejecuta forward + backward (RREF) con registro de pasos."""
         self.frame = {}
+        # Calcular determinante de A (si es cuadrada) usando Gauss-Jordan y registrar
+        try:
+            det = determinant(self.A, tol=self.tolerance)
+            self.determinante = det
+            log_step(self.frame, f"Determinante de A = {format_number(det)}", self.matriz, det=det, tag="det")
+            sing = self.is_singular()
+            sing_msg = "singular" if sing else "no singular" if sing is not None else "no aplicable"
+            log_step(self.frame, f"Estado de singularidad: {sing_msg}", self.matriz, det=det, tag="singularity")
+        except Exception:
+            # si no es cuadrada o falla, no interrumpimos el proceso
+            pass
         self.forward_elimination()
         self.backward_elimination_and_normalize()
         return self.frame
@@ -294,7 +306,13 @@ class GaussJordanMethod(Matrix):
                 conclusion += f"Ax=b con rango A < n -> infinitas soluciones generales (paramétricas)."
         log_step(self.frame, conclusion, self.matriz, det=None, tag="conclusion")
 
-        return {**result, "parametric_solution": parametric, "tipo_sistema": tipo_sistema, "dependencia": dependencia}
+        return {**result,
+            "parametric_solution": parametric,
+            "tipo_sistema": tipo_sistema,
+            "dependencia": dependencia,
+            "determinant": self.determinante,
+            "is_singular": self.is_singular()
+           }
 
     # ----------------------
     # Chequeos útiles

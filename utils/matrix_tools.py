@@ -203,3 +203,137 @@ def verify_transpose_props(A: Matrix, B: Matrix | None = None) -> str:
         lines.append("(A·B)ᵀ = Bᵀ·Aᵀ    ->  No evaluada (requiere B con cols(A)=filas(B)).")
 
     return "\n".join(lines)
+
+
+# --------------------------
+# Determinante / Inversa (usando Gauss-Jordan)
+# --------------------------
+def determinant(A: Matrix, tol: float = 1e-12) -> float:
+    """
+    Calcula el determinante de A usando una reducción tipo Gauss-Jordan
+    con pivoteo parcial por filas. Se siguen operaciones elementales y
+    se acumula el producto de los pivotes antes de normalizar (escala).
+    Devuelve 0.0 si la matriz es singular.
+    """
+    # Verificar cuadrada
+    m, n = shape_of(A)
+    if m != n:
+        raise ValueError("Determinante sólo definido para matrices cuadradas.")
+
+    # Hacer copia para no modificar A
+    M = [row[:] for row in A]
+    det = 1.0
+    row = 0
+    swaps = 0
+    for col in range(n):
+        if row >= n:
+            break
+        # seleccionar fila con mayor valor absoluto en columna `col`
+        sel = row
+        best = abs(M[row][col])
+        for r in range(row + 1, n):
+            v = abs(M[r][col])
+            if v > best:
+                best = v
+                sel = r
+
+        if best <= tol:
+            # columna sin pivote significativo -> determinante 0
+            return 0.0
+
+        if sel != row:
+            M[row], M[sel] = M[sel], M[row]
+            swaps += 1
+
+        pivot = M[row][col]
+        # acumular el valor del pivote (antes de escalar a 1)
+        det *= pivot
+
+        # escalar la fila para dejar 1 en la posición pivote (como en Gauss-Jordan)
+        for j in range(col, n):
+            M[row][j] = M[row][j] / pivot
+
+        # eliminación: hacer ceros en todas las demás filas (arriba y abajo)
+        for r in range(n):
+            if r == row:
+                continue
+            factor = M[r][col]
+            if abs(factor) <= tol:
+                continue
+            for j in range(col, n):
+                M[r][j] = M[r][j] - factor * M[row][j]
+
+        row += 1
+
+    if swaps % 2 != 0:
+        det = -det
+    return 0.0 if abs(det) <= tol else det
+
+
+def is_singular(A: Matrix, tol: float = 1e-12) -> bool | None:
+    """Devuelve True si A cuadrada y singular, False si no singular, None si no es cuadrada."""
+    m, n = shape_of(A)
+    if m != n:
+        return None
+    try:
+        d = determinant(A, tol=tol)
+    except ValueError:
+        return None
+    return abs(d) <= tol
+
+
+def inverse(A: Matrix, tol: float = 1e-12) -> Tuple[Matrix, str]:
+    """
+    Calcula la inversa de A usando Gauss-Jordan sobre [A | I].
+    Retorna (A_inv, steps) donde steps es un texto con las operaciones realizadas.
+    Lanza ValueError si A no es cuadrada o es singular.
+    """
+    m, n = shape_of(A)
+    if m != n:
+        raise ValueError("La inversa sólo está definida para matrices cuadradas.")
+
+    # Copia y matriz aumentada [A | I]
+    M = [list(map(float, row)) + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate([r[:] for r in A])]
+    steps = []
+    row = 0
+    for col in range(n):
+        # seleccionar pivote (pivoteo parcial por filas)
+        sel = row
+        best = abs(M[row][col])
+        for r in range(row + 1, n):
+            v = abs(M[r][col])
+            if v > best:
+                best = v
+                sel = r
+
+        if best <= tol:
+            raise ValueError("Matriz singular (no tiene pivote en la columna {})".format(col+1))
+
+        if sel != row:
+            M[row], M[sel] = M[sel], M[row]
+            steps.append(f"F{row+1} <-> F{sel+1}")
+
+        pivot = M[row][col]
+        # Escalar para hacer 1 el pivote
+        if abs(pivot - 1.0) > tol:
+            for j in range(col, 2*n):
+                M[row][j] = M[row][j] / pivot
+            steps.append(f"F{row+1} -> F{row+1} / {format_number(pivot)}")
+
+        # Eliminar en todas las filas (arriba y abajo)
+        for r in range(n):
+            if r == row:
+                continue
+            factor = M[r][col]
+            if abs(factor) <= tol:
+                continue
+            signo = "-" if factor > 0 else "+"
+            for j in range(col, 2*n):
+                M[r][j] = M[r][j] - factor * M[row][j]
+            steps.append(f"F{r+1} -> F{r+1} {signo} {format_number(abs(factor))}*F{row+1}")
+
+        row += 1
+
+    # Extraer la parte derecha como inversa
+    Ainv = [[M[i][j] for j in range(n, 2*n)] for i in range(n)]
+    return Ainv, "\n".join(steps)

@@ -137,6 +137,22 @@ def print_summary(result: Optional[Any]):
     
     else:
         print("Solución particular: None (sistema inconsistente)")
+    # Mostrar determinante / singularidad si están en el resultado
+    det = result.get('determinant') if isinstance(result, dict) else None
+    if det is not None:
+        try:
+            print(f"Determinante de A: {format_number(det)}")
+        except Exception:
+            print(f"Determinante de A: {det}")
+
+    sing = result.get('is_singular') if isinstance(result, dict) else None
+    if sing is not None:
+        if sing is True:
+            print("Estado: Matriz SINGULAR (no invertible)")
+        elif sing is False:
+            print("Estado: Matriz NO SINGULAR (invertible)")
+        else:
+            print(f"Estado de singularidad: {sing}")
     print("=================================")
     
 # ---- NUEVO/ACTUALIZADO: forma paramétrica desde RREF ----

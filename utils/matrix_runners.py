@@ -9,6 +9,7 @@ from utils.matrix_tools import (
     sum_many, sub_many, matmul_chain,
     verify_transpose_props, pretty_show, shape_of, same_size, mult_compatible
 )
+from utils.matrix_tools import inverse, determinant, is_singular
 from utils.matrix_memory import list_names as mem_list, get as mem_get, save as mem_save, remove as mem_remove, pretty_inventory as mem_inv
 
 Matrix = List[List[float]]
@@ -314,6 +315,36 @@ def run_matrix_transpose():
     _ask_store_result(AT)
     _chain_with_result(AT)
 
+
+def run_matrix_inverse():
+    print("\n--- Matriz inversa (A⁻¹) ---")
+    r, c = inputs_matrix()
+    if r != c:
+        print("La matriz debe ser cuadrada para calcular su inversa.")
+        return
+    print("\nMatriz A:")
+    A = _maybe_pick_from_memory((r, c)) or read_matrix_only(r, c)
+
+    try:
+        det_val = determinant(A)
+        if abs(det_val) <= 1e-12:
+            print("La matriz es singular (determinante = 0) y no tiene inversa.")
+            return
+    except Exception:
+        # si falla el determinante, seguimos y dejamos que inverse lance
+        pass
+
+    try:
+        Ainv, steps = inverse(A)
+        print(pretty_show("A", A))
+        print("Pasos (Gauss-Jordan sobre [A | I]):")
+        print(steps)
+        print(pretty_show("A⁻¹ =", Ainv))
+        _ask_store_result(Ainv)
+        _chain_with_result(Ainv)
+    except Exception as e:
+        print(f"No se pudo calcular la inversa: {e}")
+
 # --------------------------
 # Menú de MEMORIA (gestión básica y prueba de (AB)^T)
 # --------------------------
@@ -374,7 +405,8 @@ def matrices_menu_loop():
         print("[3] Multiplicar por escalar  αA")
         print("[4] Multiplicación en cadena M1·M2·...·Mk")
         print("[5] Matriz traspuesta  Aᵀ")
-        print("[6] Memoria")
+        print("[6] Matriz inversa  A⁻¹")
+        print("[7] Memoria")
         print("[0] Volver")
         opt = input("Elige una opción: ").strip()
 
@@ -392,7 +424,10 @@ def matrices_menu_loop():
             elif opt == "5":
                 run_matrix_transpose()
             elif opt == "6":
+                run_matrix_inverse()
+            elif opt == "7":
                 matrices_memory_menu()
+            
             else:
                 print("Opción inválida. Intenta de nuevo.")
         except Exception as e:
