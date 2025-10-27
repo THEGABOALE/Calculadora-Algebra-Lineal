@@ -3,6 +3,7 @@ from __future__ import annotations
 from typing import List, Tuple
 from utils.EquationFunctions import format_number
 from utils.printMethods import format_matrix
+from utils.printMethods import log_step
 
 Matrix = List[List[float]]
 
@@ -282,11 +283,17 @@ def is_singular(A: Matrix, tol: float = 1e-12) -> bool | None:
     return abs(d) <= tol
 
 
-def inverse(A: Matrix, tol: float = 1e-12) -> Tuple[Matrix, str]:
+def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None) -> Tuple[Matrix, str]:
     """
     Calcula la inversa de A usando Gauss-Jordan sobre [A | I].
-    Retorna (A_inv, steps) donde steps es un texto con las operaciones realizadas.
-    Lanza ValueError si A no es cuadrada o es singular.
+    Si se proporciona `frame` (dict), la función registrará cada paso
+    (matriz aumentada y operaciones) usando `log_step` para que luego
+    pueda imprimirse con `print_frame` con el mismo estilo que el resto
+    de los métodos.
+
+    Retorna (A_inv, steps_text) donde steps_text incluye el listado de
+    operaciones elementales y, además, la matriz de cofactores, la adjunta
+    y la inversa obtenida por Adj(A)/det(A) cuando corresponde.
     """
     m, n = shape_of(A)
     if m != n:
@@ -294,7 +301,11 @@ def inverse(A: Matrix, tol: float = 1e-12) -> Tuple[Matrix, str]:
 
     # Copia y matriz aumentada [A | I]
     M = [list(map(float, row)) + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate([r[:] for r in A])]
-    steps = []
+    steps_list: List[str] = []
+    # registrar estado inicial en frame si se proporcionó
+    if frame is not None:
+        log_step(frame, "Matriz aumentada inicial [A | I]", M, det=None, tag="inverse_start")
+
     row = 0
     for col in range(n):
         # seleccionar pivote (pivoteo parcial por filas)
@@ -311,14 +322,18 @@ def inverse(A: Matrix, tol: float = 1e-12) -> Tuple[Matrix, str]:
 
         if sel != row:
             M[row], M[sel] = M[sel], M[row]
-            steps.append(f"F{row+1} <-> F{sel+1}")
+            steps_list.append(f"F{row+1} <-> F{sel+1}")
+            if frame is not None:
+                log_step(frame, f"F{row+1} <-> F{sel+1}", M, det=None, tag="swap_rows")
 
         pivot = M[row][col]
         # Escalar para hacer 1 el pivote
         if abs(pivot - 1.0) > tol:
             for j in range(col, 2*n):
                 M[row][j] = M[row][j] / pivot
-            steps.append(f"F{row+1} -> F{row+1} / {format_number(pivot)}")
+            steps_list.append(f"F{row+1} -> F{row+1} / {format_number(pivot)}")
+            if frame is not None:
+                log_step(frame, f"F{row+1} -> F{row+1} / {format_number(pivot)}", M, det=None, tag="scale")
 
         # Eliminar en todas las filas (arriba y abajo)
         for r in range(n):
@@ -330,10 +345,60 @@ def inverse(A: Matrix, tol: float = 1e-12) -> Tuple[Matrix, str]:
             signo = "-" if factor > 0 else "+"
             for j in range(col, 2*n):
                 M[r][j] = M[r][j] - factor * M[row][j]
-            steps.append(f"F{r+1} -> F{r+1} {signo} {format_number(abs(factor))}*F{row+1}")
+            steps_list.append(f"F{r+1} -> F{r+1} {signo} {format_number(abs(factor))}*F{row+1}")
+            if frame is not None:
+                log_step(frame, f"F{r+1} -> F{r+1} {signo} {format_number(abs(factor))}*F{row+1}", M, det=None, tag="elim")
 
         row += 1
 
     # Extraer la parte derecha como inversa
     Ainv = [[M[i][j] for j in range(n, 2*n)] for i in range(n)]
-    return Ainv, "\n".join(steps)
+    if frame is not None:
+        log_step(frame, "Forma reducida por filas (RREF) sobre [A | I] -> [I | A⁻¹]", M, det=None, tag="rref")
+        log_step(frame, "Matriz inversa (A⁻¹)", Ainv, det=None, tag="inverse_result")
+
+    # Preparar texto detallado con operaciones y derivadas pedagógicas (cofactores / adjunta)
+    detailed_lines: List[str] = []
+    detailed_lines.append("Pasos (operaciones elementales - Gauss-Jordan sobre [A | I]):")
+    detailed_lines.extend(steps_list)
+
+    # Matriz de cofactores y adjunta (útil pedagógicamente para tamaños pequeños)
+    def _minor_matrix(B: Matrix, ii: int, jj: int) -> Matrix:
+        return [[B[r][c] for c in range(len(B)) if c != jj] for r in range(len(B)) if r != ii]
+
+    cofactors = [[0.0 for _ in range(n)] for _ in range(n)]
+    for i in range(n):
+        for j in range(n):
+            minor = _minor_matrix(A, i, j)
+            det_minor = determinant(minor) if minor else 1.0
+            cofactors[i][j] = ((-1) ** (i + j)) * det_minor
+
+    adjugate = [[cofactors[j][i] for j in range(n)] for i in range(n)]
+
+    detailed_lines.append("\nMatriz de cofactores (C):")
+    detailed_lines.append(format_matrix(cofactors))
+    if frame is not None:
+        log_step(frame, "Matriz de cofactores (C)", cofactors, det=None, tag="cofactors")
+
+    detailed_lines.append("\nMatriz adjunta (Adj(A) = C^T):")
+    detailed_lines.append(format_matrix(adjugate))
+    if frame is not None:
+        log_step(frame, "Matriz adjunta (Adj(A) = C^T)", adjugate, det=None, tag="adjugate")
+
+    try:
+        detA = determinant(A)
+        detailed_lines.append(f"\nDeterminante de A = {format_number(detA)}")
+        if frame is not None:
+            log_step(frame, f"Determinante de A = {format_number(detA)}", A, det=detA, tag="det")
+        if abs(detA) > tol:
+            detailed_lines.append("\nMatriz inversa = (1/det(A)) * Adj(A)")
+            inv_by_adj = [[adjugate[i][j] / detA for j in range(n)] for i in range(n)]
+            detailed_lines.append("\nAdj(A) / det(A):")
+            detailed_lines.append(format_matrix(inv_by_adj))
+    except Exception:
+        pass
+
+    detailed_lines.append("\nResultado final (A⁻¹):")
+    detailed_lines.append(format_matrix(Ainv))
+
+    return Ainv, "\n".join(detailed_lines)

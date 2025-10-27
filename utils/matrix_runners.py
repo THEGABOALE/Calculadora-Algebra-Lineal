@@ -4,6 +4,7 @@ from typing import List
 
 from helpers.inputsmatrix import inputs_matrix, read_matrix_only
 from utils.EquationFunctions import parse_fraction, format_number
+from utils.printMethods import print_frame
 from utils.matrix_tools import (
     add_matrices, sub_matrices, scalar_mult, matmul, transpose,
     sum_many, sub_many, matmul_chain,
@@ -335,9 +336,12 @@ def run_matrix_inverse():
         pass
 
     try:
-        Ainv, steps = inverse(A)
-        print(pretty_show("A", A))
-        print("Pasos (Gauss-Jordan sobre [A | I]):")
+        frame: dict = {}
+        Ainv, steps = inverse(A, frame=frame)
+        # Imprimir el frame con los estados intermedios (swap, scale, elim, cofactors, adjugate, det, result)
+        print_frame(frame)
+        # además mostrar el bloque de pasos pedagógicos (cofactores / adjunta / resultado)
+        print("Pasos detallados:")
         print(steps)
         print(pretty_show("A⁻¹ =", Ainv))
         _ask_store_result(Ainv)
