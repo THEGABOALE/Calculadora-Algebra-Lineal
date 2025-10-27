@@ -144,6 +144,104 @@ def pretty_show(title: str, M: Matrix) -> str:
     return f"{title} ({m}x{n})\n{format_matrix(M)}\n"
 
 # --------------------------
+# Helpers: rank, RREF, nullspace, mult
+# --------------------------
+def _copy_matrix(A: Matrix) -> Matrix:
+    return [row[:] for row in A]
+
+def multiply_mat_vec(A: Matrix, v: List[float]) -> List[float]:
+    m, n = shape_of(A)
+    if len(v) != n:
+        raise ValueError("Dimensiones incompatibles para multiplicar matriz por vector.")
+    return [sum(A[i][j] * v[j] for j in range(n)) for i in range(m)]
+
+def _rref_matrix(A: Matrix, tol: float = 1e-12) -> Tuple[Matrix, int]:
+    """Devuelve una copia en RREF y el rango (número de pivotes no nulos)."""
+    M = _copy_matrix(A)
+    m, n = shape_of(M)
+    row = 0
+    pivots = 0
+    for col in range(n):
+        if row >= m:
+            break
+        # buscar pivote en [row..m-1]
+        sel = row
+        best = abs(M[row][col])
+        for r in range(row + 1, m):
+            v = abs(M[r][col])
+            if v > best:
+                best = v
+                sel = r
+        if best <= tol:
+            continue
+        if sel != row:
+            M[row], M[sel] = M[sel], M[row]
+        pivot = M[row][col]
+        # escalar fila
+        for j in range(col, n):
+            M[row][j] = M[row][j] / pivot
+        # anular otras filas
+        for r in range(m):
+            if r == row:
+                continue
+            factor = M[r][col]
+            if abs(factor) <= tol:
+                continue
+            for j in range(col, n):
+                M[r][j] = M[r][j] - factor * M[row][j]
+        row += 1
+        pivots += 1
+    return M, pivots
+
+def rank_of(A: Matrix, tol: float = 1e-12) -> int:
+    _, pivots = _rref_matrix(A, tol=tol)
+    return pivots
+
+def nullspace_vector(A: Matrix, tol: float = 1e-12) -> List[float] | None:
+    """Intenta construir un vector no trivial x tal que A x = 0 si existe.
+    Devuelve None si sólo la solución trivial.
+    Regresa un vector con una libre asignada a 1 cuando sea posible.
+    """
+    m, n = shape_of(A)
+    # Construir matriz aumentada [A | 0]
+    M = [row[:] + [0.0] for row in _copy_matrix(A)]
+    R, pivots = _rref_matrix(M, tol=tol)
+    if pivots == n:
+        return None
+    # identificar columnas pivote
+    pivot_cols = []
+    for i in range(m):
+        for j in range(n):
+            if abs(R[i][j]) > tol:
+                pivot_cols.append(j)
+                break
+    pivot_set = set(pivot_cols)
+    free_cols = [j for j in range(n) if j not in pivot_set]
+    if not free_cols:
+        return None
+    free = free_cols[0]
+    x = [0.0] * n
+    x[free] = 1.0
+    # para cada pivote, resolver el valor en función de variables libres
+    # recorrer filas y encontrar la ecuación con pivot en columna p
+    for i in range(m):
+        # buscar pivot en la fila
+        pcol = None
+        for j in range(n):
+            if abs(R[i][j]) > tol:
+                pcol = j
+                break
+        if pcol is None:
+            continue
+        # suma de R[i][pcol]*x[pcol] + sum_{free} R[i][f]*x[f] = 0
+        s = 0.0
+        for f in free_cols:
+            s += R[i][f] * x[f]
+        # como R está en RREF, R[i][pcol] debería ser 1
+        x[pcol] = -s
+    return x
+
+# --------------------------
 # Propiedades de la traspuesta (solo chequeos que no requieren otra matriz)
 # --------------------------
 def _equal_matrices(A: Matrix, B: Matrix, tol: float = 1e-12) -> bool:
@@ -202,6 +300,63 @@ def verify_transpose_props(A: Matrix, B: Matrix | None = None) -> str:
         lines.append("(A·B)ᵀ = Bᵀ·Aᵀ    ->  " + ("OK" if ABT == BT_AT else "FALSO"))
     else:
         lines.append("(A·B)ᵀ = Bᵀ·Aᵀ    ->  No evaluada (requiere B con cols(A)=filas(B)).")
+
+    return "\n".join(lines)
+
+
+def verify_inverse_props(A: Matrix, B: Matrix | None = None, tol: float = 1e-12) -> str:
+    """Verifica propiedades relacionadas con inversas:
+      a) (A^{-1})^{-1} = A
+      b) Si B dado: (AB)^{-1} = B^{-1} A^{-1} (cuando aplicable)
+      c) (A^T)^{-1} = (A^{-1})^T
+    Devuelve un bloque de texto con OK / FALSO / No evaluada.
+    """
+    lines: List[str] = []
+    m, n = shape_of(A)
+    if m != n:
+        return "No evaluada: A no es cuadrada."
+
+    # calcular inversa de A si es posible
+    try:
+        Ainv, _ = inverse(A, tol=tol, check_props=False)
+    except Exception as e:
+        return f"No evaluada: A no invertible ({e})."
+
+    # a) (A^{-1})^{-1} = A
+    try:
+        Ainvinv, _ = inverse(Ainv, tol=tol, check_props=False)
+        ok_a = _equal_matrices(Ainvinv, A, tol=tol)
+        lines.append("a) (A^{-1})^{-1} = A  ->  " + ("OK" if ok_a else "FALSO"))
+    except Exception:
+        lines.append("a) (A^{-1})^{-1} = A  ->  No evaluada (no fue posible invertir A^{-1}).")
+
+    # b) (AB)^{-1} = B^{-1} A^{-1}
+    if B is None:
+        lines.append("b) (AB)^{-1} = B^{-1}·A^{-1}  ->  No evaluada (requiere B).")
+    else:
+        if not mult_compatible(A, B):
+            lines.append("b) (AB)^{-1} = B^{-1}·A^{-1}  ->  No evaluada (incompatibilidad: cols(A) != filas(B)).")
+        else:
+            # intentar invertir AB y B
+            try:
+                AB, _ = matmul(A, B)
+                ABinv, _ = inverse(AB, tol=tol, check_props=False)
+                Binv, _ = inverse(B, tol=tol, check_props=False)
+                RHS, _ = matmul(Binv, Ainv)
+                ok_b = _equal_matrices(ABinv, RHS, tol=tol)
+                lines.append("b) (AB)^{-1} = B^{-1}·A^{-1}  ->  " + ("OK" if ok_b else "FALSO"))
+            except Exception as e:
+                lines.append(f"b) (AB)^{-1} = B^{-1}·A^{-1}  ->  No evaluada ({e}).")
+
+    # c) (A^T)^{-1} = (A^{-1})^T
+    try:
+        AT, _ = transpose(A)
+        ATinv, _ = inverse(AT, tol=tol, check_props=False)
+        AinvT, _ = transpose(Ainv)
+        ok_c = _equal_matrices(ATinv, AinvT, tol=tol)
+        lines.append("c) (A^T)^{-1} = (A^{-1})^T  ->  " + ("OK" if ok_c else "FALSO"))
+    except Exception as e:
+        lines.append(f"c) (A^T)^{-1} = (A^{-1})^T  ->  No evaluada ({e}).")
 
     return "\n".join(lines)
 
@@ -283,7 +438,7 @@ def is_singular(A: Matrix, tol: float = 1e-12) -> bool | None:
     return abs(d) <= tol
 
 
-def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None) -> Tuple[Matrix, str]:
+def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[float] | None = None, check_props: bool = True) -> Tuple[Matrix, str]:
     """
     Calcula la inversa de A usando Gauss-Jordan sobre [A | I].
     Si se proporciona `frame` (dict), la función registrará cada paso
@@ -299,6 +454,38 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None) -> Tuple[M
     if m != n:
         raise ValueError("La inversa sólo está definida para matrices cuadradas.")
 
+    # Si se pide, comprobar propiedades relacionadas con sistemas Ax = b o Ax = 0
+    if b is not None and len(b) != m:
+        raise ValueError("Dimensión de b incompatible con A para Ax=b.")
+
+    # Comprobar singularidad antes de proceder: si es singular lanzar error pero
+    # proporcionando información pedagógica (determinante, rango, existencia de núcleo no trivial).
+    detA = determinant(A, tol=tol)
+    if abs(detA) <= tol:
+        # preparar texto explicativo antes de lanzar para mantener comportamiento de tests (excepción)
+        rA = rank_of(A, tol=tol)
+        detailed = []
+        detailed.append(f"Matriz singular: det(A) = {format_number(detA)} (≈ 0)")
+        detailed.append(f"Rango de A = {rA} (< {n} si singular)")
+        detailed.append("Consecuencias:")
+        detailed.append(" - No existe A^{-1}.")
+        detailed.append(" - Las columnas de A son linealmente dependientes; núcleo no trivial existe.")
+        nullv = nullspace_vector(A, tol=tol)
+        if nullv is not None:
+            detailed.append(" - Ejemplo de vector no trivial en Núcleo (Ax=0):")
+            detailed.append(format_matrix([nullv]))
+        # Si el usuario preguntó por un b, analizar consistencia del sistema Ax=b
+        if b is not None:
+            # construir matriz aumentada y comparar rangos
+            Aug = [row[:] + [bv] for row, bv in zip(A, b)]
+            rAug = rank_of(Aug, tol=tol)
+            if rAug > rA:
+                detailed.append(f"Sistema Ax=b inconsistente: rango([A|b]) = {rAug} > rango(A) = {rA} -> Sin soluciones.")
+            else:
+                detailed.append(f"Sistema Ax=b consistente y tiene infinitas soluciones (rango = {rA} < {n}).")
+        detailed_text = "\n".join(detailed)
+        raise ValueError(detailed_text)
+
     # Copia y matriz aumentada [A | I]
     M = [list(map(float, row)) + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate([r[:] for r in A])]
     steps_list: List[str] = []
@@ -308,7 +495,9 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None) -> Tuple[M
 
     row = 0
     for col in range(n):
-        # seleccionar pivote (pivoteo parcial por filas)
+        if row >= n:
+            break
+        # seleccionar fila con mayor valor absoluto en columna `col`
         sel = row
         best = abs(M[row][col])
         for r in range(row + 1, n):
@@ -318,6 +507,7 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None) -> Tuple[M
                 sel = r
 
         if best <= tol:
+            # columna sin pivote significativo -> matriz singular
             raise ValueError("Matriz singular (no tiene pivote en la columna {})".format(col+1))
 
         if sel != row:
@@ -335,16 +525,16 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None) -> Tuple[M
             if frame is not None:
                 log_step(frame, f"F{row+1} -> F{row+1} / {format_number(pivot)}", M, det=None, tag="scale")
 
-        # Eliminar en todas las filas (arriba y abajo)
+        # eliminación: hacer ceros en todas las demás filas (arriba y abajo)
         for r in range(n):
             if r == row:
                 continue
             factor = M[r][col]
             if abs(factor) <= tol:
                 continue
-            signo = "-" if factor > 0 else "+"
             for j in range(col, 2*n):
                 M[r][j] = M[r][j] - factor * M[row][j]
+            signo = "-" if factor > 0 else "+"
             steps_list.append(f"F{r+1} -> F{r+1} {signo} {format_number(abs(factor))}*F{row+1}")
             if frame is not None:
                 log_step(frame, f"F{r+1} -> F{r+1} {signo} {format_number(abs(factor))}*F{row+1}", M, det=None, tag="elim")
@@ -400,5 +590,29 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None) -> Tuple[M
 
     detailed_lines.append("\nResultado final (A⁻¹):")
     detailed_lines.append(format_matrix(Ainv))
+
+    # Si se proporcionó un vector b, comprobar que x = A⁻¹ b satisface Ax = b
+    if b is not None:
+        try:
+            x = multiply_mat_vec(Ainv, b)
+            Ax = multiply_mat_vec(A, x)
+            detailed_lines.append("\nVerificación de Ax = b usando A⁻¹:")
+            detailed_lines.append(f"x = A⁻¹·b = {format_matrix([x])}")
+            detailed_lines.append(f"A·x = {format_matrix([Ax])}")
+            ok = all(abs(Ax[i] - b[i]) <= 1e-9 for i in range(len(b)))
+            detailed_lines.append("Verificación: " + ("OK (Ax ≈ b)" if ok else "FALSO (Ax != b)"))
+        except Exception as e:
+            detailed_lines.append(f"Error verificando Ax=b: {e}")
+
+    # Añadir recordatorio de teoremas útiles (con comprobaciones automáticas)
+    detailed_lines.append("\nPropiedades útiles (teorema) - comprobaciones:")
+    if check_props:
+        try:
+            inv_checks = verify_inverse_props(A, None, tol=tol)
+            detailed_lines.append(inv_checks)
+        except Exception as e:
+            detailed_lines.append(f"No fue posible evaluar propiedades de inversa: {e}")
+    else:
+        detailed_lines.append("(Comprobaciones de propiedades deshabilitadas para evitar recursión interna.)")
 
     return Ainv, "\n".join(detailed_lines)

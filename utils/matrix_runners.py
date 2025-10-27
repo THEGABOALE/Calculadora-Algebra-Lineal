@@ -11,6 +11,7 @@ from utils.matrix_tools import (
     verify_transpose_props, pretty_show, shape_of, same_size, mult_compatible
 )
 from utils.matrix_tools import inverse, determinant, is_singular
+from utils.matrix_tools import verify_inverse_props
 from utils.matrix_memory import list_names as mem_list, get as mem_get, save as mem_save, remove as mem_remove, pretty_inventory as mem_inv
 
 Matrix = List[List[float]]
@@ -115,6 +116,7 @@ def _chain_with_result(current: Matrix):
         print("[3] Multiplicar por escalar (αA)")
         print("[4] Multiplicar por OTRA matriz / cadena (A·M2[·M3…])")
         print("[5] Trasponer (Aᵀ)")
+        print("[6] Inversa (A⁻¹)")
         print("[S] Guardar resultado en memoria")
         print("[0] Terminar")
         opt = input("Elige: ").strip().lower()
@@ -214,6 +216,23 @@ def _chain_with_result(current: Matrix):
                 print("Propiedades verificadas:")
                 print(verify_transpose_props(current, B))
                 current = AT
+
+            elif opt == "6":
+                # Calcular inversa del resultado actual (si es cuadrada)
+                r, c = shape_of(current)
+                if r != c:
+                    print("La matriz debe ser cuadrada para calcular su inversa.")
+                    continue
+                try:
+                    frame: dict = {}
+                    Ainv, steps = inverse(current, frame=frame)
+                    print_frame(frame)
+                    print("Pasos detallados (inversa):")
+                    print(steps)
+                    print(pretty_show("A⁻¹ =", Ainv))
+                    current = Ainv
+                except Exception as e:
+                    print(f"No se pudo calcular la inversa: {e}")
 
             else:
                 print("Opción inválida.")
@@ -341,8 +360,29 @@ def run_matrix_inverse():
         # Imprimir el frame con los estados intermedios (swap, scale, elim, cofactors, adjugate, det, result)
         print_frame(frame)
         # además mostrar el bloque de pasos pedagógicos (cofactores / adjunta / resultado)
-        print("Pasos detallados:")
-        print(steps)
+        # Preguntar si queremos evaluar las propiedades inversa (especialmente (AB)^{-1} = B^{-1}A^{-1}) usando una B de memoria
+        if mem_list():
+            ans = input("¿Probar propiedades de inversa con una B de memoria? [s/N]: ").strip().lower()
+            if ans == "s":
+                print("\nMemoria disponible:")
+                print(mem_inv())
+                name_b = input("Nombre de B: ").strip()
+                B = mem_get(name_b)
+                if B is None:
+                    print("No existe esa matriz en memoria. Se mostrarán las comprobaciones generales sin B.")
+                    print("Pasos detallados:")
+                    print(steps)
+                else:
+                    print("Pasos detallados:")
+                    print(steps)
+                    print("\nComprobaciones de propiedades inversa (A, B):")
+                    print(verify_inverse_props(A, B))
+            else:
+                print("Pasos detallados:")
+                print(steps)
+        else:
+            print("Pasos detallados:")
+            print(steps)
         print(pretty_show("A⁻¹ =", Ainv))
         _ask_store_result(Ainv)
         _chain_with_result(Ainv)
