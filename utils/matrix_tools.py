@@ -155,32 +155,51 @@ def _equal_matrices(A: Matrix, B: Matrix, tol: float = 1e-12) -> bool:
                 return False
     return True
 
-def verify_transpose_props(A: Matrix) -> str:
+def verify_transpose_props(A: Matrix, B: Matrix | None = None) -> str:
     """
-    Devuelve un texto con verificaciones básicas de la traspuesta que NO
-    requieren introducir otra matriz:
-      1) (A^T)^T = A
-      2) dim(A^T) = (n x m) si dim(A) = (m x n)
-      3) (αA)^T = α A^T  (probamos con α = 2, por ejemplo)
-    Las propiedades que necesitan otra matriz (A+B)^T = A^T + B^T y
-    (AB)^T = B^T A^T se dejan como 'no evaluadas' por falta de B.
+    Verifica propiedades típicas de la traspuesta para A (y opcionalmente B):
+      • dimensiones de A y A^T
+      • (A^T)^T = A
+      • (αA)^T = α A^T (probado con α=2)
+      • (A+B)^T = A^T + B^T (si B mismo tamaño)
+      • (AB)^T = B^T A^T (si cols(A)=filas(B))
+    Devuelve un bloque de texto con OK / FALSO o 'No evaluada' si no aplica.
     """
+    lines = []
     m, n = shape_of(A)
-
     AT, _ = transpose(A)
+    lines.append(f"Dimensiones: A es {m}x{n} y Aᵀ es {n}x{m}  ->  OK")
+
     ATT, _ = transpose(AT)
-    ok_att = _equal_matrices(ATT, A)
+    lines.append("(Aᵀ)ᵀ = A  ->  " + ("OK" if ATT == A else "FALSO"))
 
     alpha = 2.0
-    aA, _ = scalar_mult(alpha, A)
-    aAT, _ = scalar_mult(alpha, AT)
-    t_aA, _ = transpose(aA)
-    ok_scalar = _equal_matrices(t_aA, aAT)
+    alphaA, _ = scalar_mult(alpha, A)
+    left, _ = transpose(alphaA)
+    alphaAT, _ = scalar_mult(alpha, AT)
+    lines.append(f"(αA)ᵀ = α·Aᵀ (probado con α = {format_number(alpha)})  ->  "
+                 + ("OK" if left == alphaAT else "FALSO"))
 
-    lines = []
-    lines.append(f"Dimensiones: A es {m}x{n} y Aᵀ es {n}x{m}  ->  OK")
-    lines.append(f"(Aᵀ)ᵀ = A  ->  {'OK' if ok_att else 'NO'}")
-    lines.append(f"(αA)ᵀ = α·Aᵀ (probado con α = {format_number(alpha)})  ->  {'OK' if ok_scalar else 'NO'}")
-    lines.append("(A + B)ᵀ = Aᵀ + Bᵀ  ->  No evaluada (requiere B del mismo tamaño).")
-    lines.append("(A·B)ᵀ = Bᵀ·Aᵀ    ->  No evaluada (requiere B con cols(A)=filas(B)).")
+    if B is None:
+        lines.append("(A + B)ᵀ = Aᵀ + Bᵀ  ->  No evaluada (requiere B del mismo tamaño).")
+        lines.append("(A·B)ᵀ = Bᵀ·Aᵀ    ->  No evaluada (requiere B con cols(A)=filas(B)).")
+        return "\n".join(lines)
+
+    if same_size(A, B):
+        ATpBT, _ = transpose(add_matrices(A, B)[0])
+        AT_plus_BT, _ = add_matrices(transpose(A)[0], transpose(B)[0])
+        lines.append("(A + B)ᵀ = Aᵀ + Bᵀ  ->  " + ("OK" if ATpBT == AT_plus_BT else "FALSO"))
+    else:
+        lines.append("(A + B)ᵀ = Aᵀ + Bᵀ  ->  No evaluada (requiere B del mismo tamaño).")
+
+    if mult_compatible(A, B):
+        AB, _ = matmul(A, B)
+        ABT, _ = transpose(AB)
+        BT, _ = transpose(B)
+        AT, _ = transpose(A)
+        BT_AT, _ = matmul(BT, AT)
+        lines.append("(A·B)ᵀ = Bᵀ·Aᵀ    ->  " + ("OK" if ABT == BT_AT else "FALSO"))
+    else:
+        lines.append("(A·B)ᵀ = Bᵀ·Aᵀ    ->  No evaluada (requiere B con cols(A)=filas(B)).")
+
     return "\n".join(lines)
