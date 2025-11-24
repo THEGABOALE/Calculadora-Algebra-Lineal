@@ -25,6 +25,7 @@ from utils.vector_runners import (
 )
 
 from utils.matrix_runners import matrices_menu_loop
+from utils.positional_notation import run_positional_notation_menu  
 
 # ---------------------------
 # Utilidades de UI
@@ -85,6 +86,7 @@ def _print_main_menu():
         ("4", "Mostrar solo el sistema (A | b)"),
         ("5", "Vectores ▸"),
         ("6", "Matrices"),
+        ("7", "Notación Posicional ▸"),
         ("0", "Salir"),
     ]
     for k, label in items:
@@ -150,6 +152,7 @@ def startup():
         "3": ("Cramer", run_crammer),
         "4": ("Mostrar sistema", _run_display_only),
         # "5" abre submenú, no se mapea aquí
+        "7": ("Notación Posicional ▸", run_positional_notation_menu),
     }
 
     while True:
