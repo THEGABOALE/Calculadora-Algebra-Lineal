@@ -2,7 +2,7 @@
 STARTUP / MENÚ INTERACTIVO
 
 Propósito
-- Menú visual para métodos con matrices (Gauss–Jordan, Gauss, Cramer, ver A|b).
+- Menú visual para métodos con matrices (Gauss—Jordan, Gauss, Cramer, ver A|b).
 - Submenú para VECTORES (propiedades, combinación lineal, producto Ax).
 
 Notas
@@ -26,6 +26,9 @@ from utils.vector_runners import (
 
 from utils.matrix_runners import matrices_menu_loop
 from utils.positional_notation import run_positional_notation_menu  
+
+# NUEVA LÍNEA - Métodos numéricos
+from utils.numerical_methods_runners import metodos_numericos_menu_loop
 
 # ---------------------------
 # Utilidades de UI
@@ -80,13 +83,14 @@ def _print_main_menu():
     RESET=C("0"); BOLD=C("1"); WHITE=C("97"); MAG=C("95")
 
     items = [
-        ("1", "Forma Escalonada Reducida (Gauss–Jordan)"),
+        ("1", "Forma Escalonada Reducida (Gauss—Jordan)"),
         ("2", "Forma Escalonada (Gauss)"),
         ("3", "Regla de Cramer"),
         ("4", "Mostrar solo el sistema (A | b)"),
         ("5", "Vectores ▸"),
         ("6", "Matrices"),
         ("7", "Notación Posicional ▸"),
+        ("8", "Métodos Numéricos ▸"),
         ("0", "Salir"),
     ]
     for k, label in items:
@@ -106,7 +110,7 @@ def _print_vectors_menu():
         #("1", "Propiedades en R^n"),
         ("1", "Operaciones con Vectores"),
         ("2", "Combinación lineal / Ecuación vectorial"),
-        ("3", "Producto Ax (regla fila–vector)"),
+        ("3", "Producto Ax (regla fila—vector)"),
         ("0", "Volver"),
     ]
     for k, label in items:
@@ -119,7 +123,7 @@ def _vectors_menu_loop():
         #"4": ("Propiedades en R^n", run_vector_props),
         "1": ("Cálculo de Vectores", run_vector_calc),
         "2": ("Combinación lineal / Ecuación vectorial", run_vector_combination),
-        "3": ("Producto Ax (fila–vector)", run_matrix_times_vector),
+        "3": ("Producto Ax (fila—vector)", run_matrix_times_vector),
     }
     while True:
         _print_vectors_menu()
@@ -147,7 +151,7 @@ def _vectors_menu_loop():
 def startup():
     """Bucle principal del programa."""
     actions = {
-        "1": ("Gauss–Jordan (RREF)", run_gauss_jordan),
+        "1": ("Gauss—Jordan (RREF)", run_gauss_jordan),
         "2": ("Gauss", run_gauss),
         "3": ("Cramer", run_crammer),
         "4": ("Mostrar sistema", _run_display_only),
@@ -172,6 +176,10 @@ def startup():
         if opt == "6":
             matrices_menu_loop()
             continue
+        
+        if opt == "8":
+            metodos_numericos_menu_loop()
+            continue
 
         action = actions.get(opt)
         if not action:
@@ -188,3 +196,7 @@ def startup():
         except Exception as e:
             print(f"\nOcurrió un error: {e}")
         _pause()
+
+
+if __name__ == "__main__":
+    startup()
