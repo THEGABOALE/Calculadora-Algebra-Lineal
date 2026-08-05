@@ -48,6 +48,9 @@ def run_gauss():
     matriz, vector = make_equation(rows, cols)
     print(print_equation(matriz, vector))
     gauss = GaussMethod(matriz, vector)
+    # Contrato de dos pasos, igual que run_gauss_jordan: primero se elimina,
+    # después se analiza. solve_and_log() ya no re-elimina por su cuenta.
+    gauss.gauss_method()
     results = gauss.solve_and_log()
 
     print_frame(gauss.frame)

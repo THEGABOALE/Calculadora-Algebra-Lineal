@@ -1,5 +1,5 @@
 from django.shortcuts import render
-from .gauss import GaussMethod  # variante web, pendiente de unificar (Fase 3)
+from core.gauss import GaussMethod
 from core.gauss_jordan import GaussJordanMethod
 from .fraction_utils import parse_fraction, format_number
 from utils.html_display import equation_to_html, summary_to_html, frame_to_html
