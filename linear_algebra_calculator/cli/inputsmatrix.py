@@ -24,6 +24,28 @@ def inputs_matrix() -> tuple[int, int]:
             print(e)
     return int(rows), int(cols)
 
+# --- NUEVO: leer SOLO una matriz A (sin pedir b) ---
+def read_matrix_only(rows: int, cols: int) -> list[list[float]]:
+    """
+    Lee una matriz de tamaño rows x cols pidiendo solo los coeficientes.
+    Acepta fracciones tipo '3/4' o decimales.
+    No modifica nada del flujo de inputs_matrix.
+    """
+    A: list[list[float]] = []
+    for i in range(rows):
+        while True:
+            raw = input(f"Ingrese {cols} valores para la fila {i+1}: ").strip().split()
+            if len(raw) != cols:
+                print(f"Se esperaban {cols} valores. Intenta de nuevo.")
+                continue
+            try:
+                row = [parse_fraction(x) for x in raw]
+                A.append(row)
+                break
+            except Exception as e:
+                print(f"Entrada inválida ({e}). Intenta de nuevo.")
+    return A
+
 def make_matrix(cntFilas: int, cntColums: int) -> list[list[float]]:
     matriz = []
     valid_values = set("0123456789.-/ ")
@@ -76,4 +98,4 @@ def make_equation(cntFilas: int, cntColums: int):
                 print(ValueError)
     return matriz, vector
 
-__all__ = ['inputs_matrix', 'make_matrix', 'make_equation']
+__all__ = ['inputs_matrix', 'make_matrix', 'make_equation', 'read_matriz_only']  # typo heredado, ver B5 (Fase 8)
