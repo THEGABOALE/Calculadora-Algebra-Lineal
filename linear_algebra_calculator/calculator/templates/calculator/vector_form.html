@@ -1,0 +1,57 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Calculadora de Álgebra Lineal</title>
+    {% load static %}
+    {% load matrix_extras %}
+    <link rel="stylesheet" href="{% static 'css/matrix_input.css' %}">
+</head>
+<body>
+    <div class="container">
+        <h1>Ingrese los Vectores v y w</h1>
+
+        {% if error %}
+            <p class="error">{{ error }}</p>
+        {% endif %}
+
+        <form action="/vectorResolution/" method="post">
+            {% csrf_token %}
+            <input type="hidden" name="n" value="{{ n }}">
+
+            <h2>Vector v</h2>
+            <table>
+                {% for i in range_n %}
+                    <tr>
+                        <td>
+                            <input type="text" name="v_{{ i }}" size="5"
+                                value="{{ v_values|index:i }}">
+                        </td>
+                    </tr>
+                {% endfor %}
+            </table>
+
+            <h2>Vector w</h2>
+            <table>
+                {% for i in range_n %}
+                    <tr>
+                        <td>
+                            <input type="text" name="w_{{ i }}" size="5"
+                                value="{{ w_values|index:i }}">
+                        </td>
+                    </tr>
+                {% endfor %}
+            </table>
+
+            <br>
+            <label for="method">Operación:</label>
+            <select name="method" id="method">
+                <option value="suma">Suma (v + w)</option>
+                <option value="resta">Resta (v - w)</option>
+                <option value="producto_punto">Producto punto (v · w)</option>
+            </select>
+            <br><br>
+            <button type="submit">Calcular</button>
+        </form>
+    </div>
+</body>
+</html>

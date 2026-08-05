@@ -28,7 +28,7 @@
             </div>
         {% endif %}
 
-        <a href="/ecuationInput/">Realizar Nueva Calculo</a>
+        <a href="{{ back_url|default:'/ecuationInput/' }}">Realizar Nueva Calculo</a>
 
         <script>
         function toggleSection(id) {
