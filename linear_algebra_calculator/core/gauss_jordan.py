@@ -31,8 +31,18 @@ from math import isclose
 from core.matrix import Matrix
 from core.system_solver.gauss_solver import analyze_argumented, solve_from_upper
 from utils.EquationFunctions import format_number
-from utils.printMethods import log_step
+from utils.printMethods import log_step, print_parametric_solution_from_rref
 from core.matrix_tools import determinant, is_singular
+
+def _una_linea(texto: str) -> str:
+    """Aplana un texto multilínea para usarlo como paso del frame.
+
+    log_step usa la descripción como clave del dict, y print_frame /
+    frame_to_html la pintan en una sola línea; la forma paramétrica viene en
+    dos (la expresión y la declaración de parámetros).
+    """
+    return " · ".join(parte.strip() for parte in texto.splitlines() if parte.strip())
+
 
 class GaussJordanMethod(Matrix):
     """
@@ -267,7 +277,16 @@ class GaussJordanMethod(Matrix):
         sol = result.get("solution")
         basic = result.get("basic_vars", [])
         free = result.get("free_vars", [])
-        parametric = result.get("parametric_solution") if "parametric_solution" in result else None
+        # Forma paramétrica (B3). Antes se leía result["parametric_solution"], una
+        # clave que solve_from_upper() nunca devuelve, así que `parametric` era
+        # siempre None y los bloques `if parametric:` de abajo eran código muerto.
+        # self.matriz ya está en RREF cuando se llega aquí (run() corrió antes),
+        # que es justo lo que print_parametric_solution_from_rref espera.
+        # Sólo tiene sentido con variables libres; con solución única la función
+        # devolvería el listado de valores, que ya se registra como "solution".
+        parametric = None
+        if status == "infinite":
+            parametric = print_parametric_solution_from_rref(self.matriz, tol=self.tolerance)
 
         # Log incondicional de la solución particular. Estaba en main y en la rama
         # Vectores, y se perdió al integrar HomoNohomo, que lo repartió entre las
@@ -294,7 +313,7 @@ class GaussJordanMethod(Matrix):
             elif status == "infinite":
                 log_step(self.frame, "Sistema homogéneo con infinitas soluciones (existen vectores no triviales en el núcleo).", self.matriz, det=None, tag="homogeneous_infinite")
                 if parametric:
-                    log_step(self.frame, f"Solución paramétrica (no trivial): {parametric}", self.matriz, det=None, tag="parametric_solution")
+                    log_step(self.frame, f"Solución paramétrica (no trivial): {_una_linea(parametric)}", self.matriz, det=None, tag="parametric_solution")
         else:
             if status == "unique":
                 if sol is not None:
@@ -303,12 +322,12 @@ class GaussJordanMethod(Matrix):
                     log_step(self.frame, f"Solución particular + no trivial: [{', '.join(sol_str)}]", self.matriz, det=None, tag="particular_solution")
             elif status == "infinite":
                 log_step(self.frame, "Sistema no homogéneo con infinitas soluciones (dependencia entre ecuaciones).", self.matriz, det=None, tag="nonhom_infinite")
-                # Solución general con variables libres simbólicas
+                # Solución general con variables libres simbólicas.
+                # print_parametric_solution_from_rref ya nombra las libres s1, s2, …
+                # y las básicas x₁, x₂, …; el .replace("x", "s") que había aquí
+                # convertía también las básicas en s₁ y corrompía la expresión.
                 if parametric:
-                    # Asignar nombres simbólicos a las variables libres
-                    libres = [f"s{i+1}" for i in range(len(free))]
-                    param_str = str(parametric).replace("x", "s")
-                    log_step(self.frame, f"Solución general (paramétrica): {param_str}", self.matriz, det=None, tag="parametric_solution")
+                    log_step(self.frame, f"Solución general (paramétrica): {_una_linea(parametric)}", self.matriz, det=None, tag="parametric_solution")
 
         # Conclusión final sobre el sistema
         conclusion = f"Conclusión: El sistema es {tipo_sistema}, las filas de A son {dependencia}, rango(A) = {rank_A}. "
