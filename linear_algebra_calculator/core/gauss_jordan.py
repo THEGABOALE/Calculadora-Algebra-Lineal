@@ -65,7 +65,26 @@ class GaussJordanMethod(Matrix):
         
         if len(b) != len(matriz):
             raise ValueError("El vector b debe tener la misma cantidad de filas que A.")
-        
+
+        # Validaciones de forma y tipo (rama Sistemas). Van antes de construir la
+        # aumentada a propósito: el list(map(float, ...)) de abajo ya reventaría
+        # con un ValueError/TypeError genérico de float(), y estas comprobaciones
+        # quedarían inalcanzables. Aquí sí dan un mensaje que dice qué pasa.
+        if not matriz or not all(isinstance(row, list) for row in matriz):
+            raise ValueError("La matriz A no puede estar vacía y debe ser una lista de listas.")
+
+        cols = len(matriz[0])
+        if not all(len(row) == cols for row in matriz):
+            raise ValueError("Todas las filas de la matriz A deben tener la misma cantidad de columnas.")
+
+        for row in matriz:
+            for val in row:
+                if not isinstance(val, (int, float)):
+                    raise TypeError("Todos los elementos de A deben ser numéricos (int o float).")
+        for val in b:
+            if not isinstance(val, (int, float)):
+                raise TypeError("Todos los elementos del vector b deben ser numéricos (int o float).")
+
         # Construir matriz aumentada [A | b] y delegar tamaños a Matrix
         aug = [list(map(float, row)) + [float(bi)] for row, bi in zip(matriz, b)]
         super().__init__(copy.deepcopy(aug))
@@ -85,7 +104,8 @@ class GaussJordanMethod(Matrix):
         self.determinante: Optional[float] = None
         # Determina si el sistema es homogéneo (todos los valores de b son 0)
         self.is_homogeneous = all(isclose(bi, 0.0, abs_tol=self.tolerance) for bi in self.b)
-        
+
+
     # ----------------------
     # Helpers numéricos
     # ----------------------
@@ -222,6 +242,11 @@ class GaussJordanMethod(Matrix):
     def run(self) -> Dict[str, Dict[str, Any]]:
         """Ejecuta forward + backward (RREF) con registro de pasos."""
         self.frame = {}
+        # Tipo de sistema como primer paso del registro (rama Sistemas). Va aquí y
+        # no en __init__ porque la línea de arriba vacía el frame: registrarlo en
+        # el constructor, como venía en la rama, lo dejaba siempre fuera del log.
+        msg = "Sistema homogéneo (b = 0)" if self.is_homogeneous else "Sistema no homogéneo (b ≠ 0)"
+        log_step(self.frame, msg, self.matriz, det=None, tag="homogeneity_check")
         # Calcular determinante de A (si es cuadrada) usando Gauss-Jordan y registrar
         try:
             det = determinant(self.A, tol=self.tolerance)
