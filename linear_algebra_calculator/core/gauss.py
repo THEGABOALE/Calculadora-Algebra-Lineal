@@ -1,11 +1,10 @@
-from models.Matrix import Matrix
+from core.matrix import Matrix
 from math import isclose
 import copy
 from typing import Any, Dict, List, Optional, Tuple
-from utils.printMethods import log_step, print_summary, print_equation, print_frame
-from linear_algebra_calculator.utils.EquationFunctions import format_number, num_to_sub
-from models.system_solver.GaussSolver import analyze_argumented, solve_from_upper
-from helpers.inputsmatrix import inputs_matrix
+from utils.printMethods import log_step
+from utils.EquationFunctions import format_number, num_to_sub
+from core.system_solver.gauss_solver import analyze_argumented, solve_from_upper
 
 """
 Metodo de Gauss con:
@@ -349,16 +348,4 @@ class GaussMethod(Matrix):
             self.swipe_rows(col, row_option)
             return
     
-def run_gauss():
-    rows, cols = inputs_matrix()
-    
-    matriz, vector = Matrix.make_equation(rows, cols)
-    print(print_equation(matriz, vector))
-    gauss = GaussMethod(matriz, vector)
-    results = gauss.solve_and_log()
-    
-    print_frame(gauss.frame)
-    print(print_equation(matriz, vector))
-    print_summary(results)
-    
-__all__ = ['GaussMethod', 'run_gauss']
+__all__ = ['GaussMethod']

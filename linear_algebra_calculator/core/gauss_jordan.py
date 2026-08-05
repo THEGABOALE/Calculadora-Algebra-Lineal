@@ -17,20 +17,21 @@ Entradas
 - A: list[list[float]]     b: list[float] (len(b) == filas(A))
 
 Dependencias (internas)
-- models.Matrix.Matrix (para estructura y pretty-print de matriz)
-- utils.printMethods (log_step, print_frame, print_equation, print_summary)
-- models.system_solver.GaussSolver (analyze_argumented, solve_from_upper)
+- core.matrix.Matrix (para estructura y pretty-print de matriz)
+- utils.printMethods (log_step)
+- core.system_solver.gauss_solver (analyze_argumented, solve_from_upper)
+
+El runner interactivo vive en cli.method_runners; aquí no se imprime nada.
 """
 
 from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Optional, Tuple
 from math import isclose 
-from models.Matrix import Matrix
-from utils.printMethods import log_step, print_summary, print_equation, print_frame
-from linear_algebra_calculator.utils.EquationFunctions import format_number
-from models.system_solver.GaussSolver import analyze_argumented, solve_from_upper
-from helpers.inputsmatrix import inputs_matrix
+from core.matrix import Matrix
+from core.system_solver.gauss_solver import analyze_argumented, solve_from_upper
+from utils.EquationFunctions import format_number
+from utils.printMethods import log_step
 
 class GaussJordanMethod(Matrix):
     """
@@ -41,7 +42,7 @@ class GaussJordanMethod(Matrix):
     - Registro de operaciones y análisis del sistema.
 
     Uso típico:
-        A, b = Matrix.make_equation(m, n)
+        A, b = make_equation(m, n)   # cli.inputsmatrix, o cualquier fuente de datos
         gj = GaussJordanMethod(A, b)
         gj.run()                 # RREF con logs
         result = gj.solve_and_log()
@@ -49,7 +50,7 @@ class GaussJordanMethod(Matrix):
     
     def __init__(self, matriz: List[List[float]], b: Optional[List[float]]) -> None:
         if b is None:
-            raise ValueError("GaussJordanMethod requiere A y b (usa Matrix.make_equation).")
+            raise ValueError("GaussJordanMethod requiere A y b.")
         
         if len(b) != len(matriz):
             raise ValueError("El vector b debe tener la misma cantidad de filas que A.")
@@ -263,24 +264,5 @@ class GaussJordanMethod(Matrix):
             return None  # no aplica (A no es cuadrada)
         info = self.analyze()
         return info.get("rank", 0) < n
-        
-# -------- Runner --------
-def run_gauss_jordan() -> None:
-    """Runner interactivo: pide A y b, ejecuta Gauss–Jordan y muestra proceso + resumen."""
-    rows, cols = inputs_matrix()
-    matriz, vector = Matrix.make_equation(rows, cols)
 
-    # Mostrar sistema ingresado (formato algebraico)
-    print(print_equation(matriz, vector))
-
-    # Ejecutar Gauss-Jordan con logs
-    gj = GaussJordanMethod(matriz, vector)
-    gj.run()
-    results = gj.solve_and_log()
-
-    # Imprimir proceso y resumen
-    print_frame(gj.frame)
-    print(print_equation(matriz, vector))
-    print_summary(results)
-
-__all__ = ["GaussJordanMethod", "run_gauss_jordan"]
+__all__ = ["GaussJordanMethod"]

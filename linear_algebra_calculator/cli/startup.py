@@ -9,14 +9,16 @@ Propósito:
 Notas de diseño:
 - Sin dependencias externas; colores ANSI solo si stdout es TTY y NO_COLOR no está definido.
 - Cada acción es una función (runner) ya existente; este módulo solo orquesta.
-- `_run_display_only` reutiliza `Matrix.make_equation` y `mostrar_sistema_desde_input`.
+- `_run_display_only` reutiliza `make_equation` y `mostrar_sistema_desde_input`.
 """
 
-from models.CramerMethod import run_crammer
-from models.GaussMethod import run_gauss
-from models.GaussJordan import run_gauss_jordan
-from utils.display import mostrar_sistema_desde_input
-from helpers.inputsmatrix import inputs_matrix
+from cli.method_runners import (
+    run_crammer,
+    run_gauss,
+    run_gauss_jordan,
+    mostrar_sistema_desde_input,
+)
+from cli.inputsmatrix import inputs_matrix
 
 def _pause(msg: str = "\nPresiona Enter para continuar..."):
     """Pausa la consola para que el usuario lea la salida antes de volver al menú."""

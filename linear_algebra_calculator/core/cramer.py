@@ -1,12 +1,9 @@
-from models.Matrix import Matrix
+from core.matrix import Matrix
 from typing import Any, Dict, List, Optional
 from utils.printMethods import log_step
-from linear_algebra_calculator.utils.EquationFunctions import format_number, num_to_sub
+from utils.EquationFunctions import format_number, num_to_sub
 import copy
 from math import isclose
-from helpers.inputsmatrix import inputs_matrix
-# For running here
-from utils.printMethods import print_frame, print_summary, print_equation
 
 class CramerMethod(Matrix):
     """
@@ -203,23 +200,5 @@ class CramerMethod(Matrix):
         ok = all(d <= self.tolerance for d in diffs)
         return {'ok': ok, 'differences': diffs}
     
-def run_crammer():
-    rows, cols = inputs_matrix()
-    
-    matrix, vector = Matrix.make_equation(rows, cols)
-    print(print_equation(matrix, vector))
-    
-    if rows != cols:
-        print("Error: Cramer solo acepta sistemas cuadrados (mismo número de ecuaciones y variables).")
-        return
-    
-    crammer = CramerMethod(matrix, vector)
-    result = crammer.solve()
-    
-    print_frame(crammer.frame)
-    print(print_equation(matrix, vector))
-    print_summary(result)
-    
-    
 # Hacer disponible para importación
-__all__ = ['CramerMethod', 'run_crammer']
+__all__ = ['CramerMethod']
