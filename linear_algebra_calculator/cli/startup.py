@@ -29,6 +29,7 @@ from cli.vector_runners import (
 
 from cli.matrix_runners import matrices_menu_loop
 from core.positional_notation import run_positional_notation_menu
+from cli.numerical_methods_runners import metodos_numericos_menu_loop
 
 # ---------------------------
 # Utilidades de UI
@@ -90,6 +91,7 @@ def _print_main_menu():
         ("5", "Vectores ▸"),
         ("6", "Matrices"),
         ("7", "Notación Posicional ▸"),
+        ("8", "Métodos Numéricos ▸"),
         ("0", "Salir"),
     ]
     for k, label in items:
@@ -174,6 +176,10 @@ def startup():
         
         if opt == "6":
             matrices_menu_loop()
+            continue
+
+        if opt == "8":
+            metodos_numericos_menu_loop()
             continue
 
         action = actions.get(opt)
