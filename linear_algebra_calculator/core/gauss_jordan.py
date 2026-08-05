@@ -245,9 +245,16 @@ class GaussJordanMethod(Matrix):
         pivots = info.get("pivots", [])
         # Detección explícita de homogeneidad y dependencia lineal en el resumen
         tipo_sistema = "homogéneo" if self.is_homogeneous else "no homogéneo"
-        rank_A = info.get("rank_A", info.get("rank", 0))
+        # 'rank' sale de find_pivots_from_upper, que sólo escanea las columnas de
+        # coeficientes (range(n)), así que ya es rank(A) y no el de la aumentada.
+        # La clave "rank_A" que se consultaba antes no existe en ese dict.
+        rank_A = info.get("rank", 0)
         n_vars = self.columnas - 1
-        dependent = rank_A < min(self.filas, n_vars)
+        # Dependencia de FILAS: las m filas de A son dependientes sii rank(A) < m.
+        # El criterio anterior, rank < min(filas, n_vars), fallaba con más filas
+        # que columnas: una 3x2 de rango 2 daba "independiente", cuando 3 vectores
+        # en R² son necesariamente dependientes.
+        dependent = rank_A < self.filas
         dependencia = "dependiente" if dependent else "independiente"
         log_step(self.frame, f"Resumen: Tipo de solución = {status} | Sistema {tipo_sistema} | Filas de A {dependencia}", self.matriz, det=None, tag="summary")
 
@@ -261,6 +268,16 @@ class GaussJordanMethod(Matrix):
         basic = result.get("basic_vars", [])
         free = result.get("free_vars", [])
         parametric = result.get("parametric_solution") if "parametric_solution" in result else None
+
+        # Log incondicional de la solución particular. Estaba en main y en la rama
+        # Vectores, y se perdió al integrar HomoNohomo, que lo repartió entre las
+        # ramas de análisis: para status == "infinite" la única vía que quedaba era
+        # el bloque `if parametric:`, que nunca se ejecuta (B3). Se restaura aquí
+        # para no registrar menos que antes.
+        if sol is not None:
+            sol_str = [format_number(v) for v in sol]
+            log_step(self.frame, f"Solución particular (libres=0): [{', '.join(sol_str)}]", self.matriz, det=None, tag="solution")
+
         def idxs_to_vars(idxs): return "None" if not idxs else ", ".join(f"x{(i+1)}" for i in idxs)
         log_step(self.frame, f"Variables básicas: {idxs_to_vars(basic)} | Variables libres: {idxs_to_vars(free)}", self.matriz, det=None, tag="vars")
 
