@@ -58,7 +58,7 @@ def run_gauss():
     print_summary(results)
 
 
-def run_crammer():
+def run_cramer():
     rows, cols = inputs_matrix()
 
     matrix, vector = make_equation(rows, cols)
@@ -68,12 +68,17 @@ def run_crammer():
         print("Error: Cramer solo acepta sistemas cuadrados (mismo número de ecuaciones y variables).")
         return
 
-    crammer = CramerMethod(matrix, vector)
-    result = crammer.solve()
+    cramer = CramerMethod(matrix, vector)
+    result = cramer.solve()
 
-    print_frame(crammer.frame)
+    print_frame(cramer.frame)
     print(print_equation(matrix, vector))
     print_summary(result)
+
+
+# Alias obsoleto (C3): el nombre histórico tenía el typo "crammer". No se borra
+# para no romper ninguna llamada superviviente que aún lo use por ese nombre.
+run_crammer = run_cramer
 
 
 def mostrar_sistema_desde_input(
@@ -91,6 +96,7 @@ def mostrar_sistema_desde_input(
 __all__ = [
     'run_gauss_jordan',
     'run_gauss',
-    'run_crammer',
+    'run_cramer',
+    'run_crammer',  # alias obsoleto, ver C3
     'mostrar_sistema_desde_input',
 ]

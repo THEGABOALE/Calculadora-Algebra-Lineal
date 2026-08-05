@@ -12,7 +12,7 @@ Notas
 """
 
 from cli.method_runners import (
-    run_crammer,
+    run_cramer,
     run_gauss,
     run_gauss_jordan,
     mostrar_sistema_desde_input,
@@ -152,7 +152,7 @@ def startup():
     actions = {
         "1": ("Gauss–Jordan (RREF)", run_gauss_jordan),
         "2": ("Gauss", run_gauss),
-        "3": ("Cramer", run_crammer),
+        "3": ("Cramer", run_cramer),
         "4": ("Mostrar sistema", _run_display_only),
         # "5" abre submenú, no se mapea aquí
         "7": ("Notación Posicional ▸", run_positional_notation_menu),
