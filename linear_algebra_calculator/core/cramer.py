@@ -1,12 +1,9 @@
-from models.Matrix import Matrix
+from core.matrix import Matrix
 from typing import Any, Dict, List, Optional
 from utils.printMethods import log_step
-from linear_algebra_calculator.utils.EquationFunctions import format_number, num_to_sub
+from utils.EquationFunctions import format_number, num_to_sub
 import copy
 from math import isclose
-from helpers.inputsmatrix import inputs_matrix
-# For running here
-from utils.printMethods import print_frame, print_summary, print_equation
 
 class CramerMethod(Matrix):
     """
@@ -34,6 +31,117 @@ class CramerMethod(Matrix):
         self.determinant_A: Optional[float] = None
         self.solution: Optional[List[float]] = None
     
+    #-----------------------
+    # DETERMINANTE - REGLA DE SARRUS (solo 3x3)
+    #-----------------------
+    def calculate_determinant_sarrus(self, matrix: List[List[float]]) -> float:
+        """
+        Calcula el determinante usando la Regla de Sarrus (solo matrices 3x3).
+        Muestra paso a paso las diagonales y productos.
+        """
+        n = len(matrix)
+        if n != 3:
+            raise ValueError("La Regla de Sarrus solo aplica para matrices 3x3")
+
+        log_step(self.frame, "═══ MÉTODO: REGLA DE SARRUS (3×3) ═══", matrix, det=None, tag="sarrus_start")
+
+        # Extender matriz (agregar primeras 2 columnas al final)
+        extended = [row[:] + row[:2] for row in matrix]
+        log_step(self.frame, "Paso 1: Extender matriz (agregar primeras 2 columnas)", extended, det=None, tag="sarrus_extended")
+
+        a11, a12, a13 = matrix[0]
+        a21, a22, a23 = matrix[1]
+        a31, a32, a33 = matrix[2]
+
+        # Diagonales positivas
+        d1_pos = a11 * a22 * a33
+        d2_pos = a12 * a23 * a31
+        d3_pos = a13 * a21 * a32
+        positive = d1_pos + d2_pos + d3_pos
+
+        log_step(self.frame, f"Paso 2: Diagonales principales (↘):", matrix, det=None, tag="sarrus_pos")
+        log_step(self.frame, f"  Diagonal 1: ({format_number(a11)})×({format_number(a22)})×({format_number(a33)}) = {format_number(d1_pos)}", matrix, det=None, tag="sarrus_d1")
+        log_step(self.frame, f"  Diagonal 2: ({format_number(a12)})×({format_number(a23)})×({format_number(a31)}) = {format_number(d2_pos)}", matrix, det=None, tag="sarrus_d2")
+        log_step(self.frame, f"  Diagonal 3: ({format_number(a13)})×({format_number(a21)})×({format_number(a32)}) = {format_number(d3_pos)}", matrix, det=None, tag="sarrus_d3")
+        log_step(self.frame, f"  Suma positiva: {format_number(d1_pos)} + {format_number(d2_pos)} + {format_number(d3_pos)} = {format_number(positive)}", matrix, det=None, tag="sarrus_sum_pos")
+
+        # Diagonales negativas
+        d1_neg = a13 * a22 * a31
+        d2_neg = a11 * a23 * a32
+        d3_neg = a12 * a21 * a33
+        negative = d1_neg + d2_neg + d3_neg
+
+        log_step(self.frame, f"Paso 3: Diagonales secundarias (↙):", matrix, det=None, tag="sarrus_neg")
+        log_step(self.frame, f"  Diagonal 1: ({format_number(a13)})×({format_number(a22)})×({format_number(a31)}) = {format_number(d1_neg)}", matrix, det=None, tag="sarrus_d4")
+        log_step(self.frame, f"  Diagonal 2: ({format_number(a11)})×({format_number(a23)})×({format_number(a32)}) = {format_number(d2_neg)}", matrix, det=None, tag="sarrus_d5")
+        log_step(self.frame, f"  Diagonal 3: ({format_number(a12)})×({format_number(a21)})×({format_number(a33)}) = {format_number(d3_neg)}", matrix, det=None, tag="sarrus_d6")
+        log_step(self.frame, f"  Suma negativa: {format_number(d1_neg)} + {format_number(d2_neg)} + {format_number(d3_neg)} = {format_number(negative)}", matrix, det=None, tag="sarrus_sum_neg")
+
+        det = positive - negative
+        log_step(self.frame, f"Paso 4: Determinante = ({format_number(positive)}) - ({format_number(negative)}) = {format_number(det)}", matrix, det=format_number(det), tag="sarrus_result")
+
+        return det
+
+    #-----------------------
+    # DETERMINANTE - EXPANSIÓN POR COFACTORES
+    #-----------------------
+    def calculate_determinant_cofactors(self, matrix: List[List[float]], level: int = 0, show_steps: bool = True) -> float:
+        """
+        Calcula el determinante usando Expansión por Cofactores.
+        Muestra paso a paso los cofactores y signos.
+        """
+        n = len(matrix)
+
+        if level == 0 and show_steps:
+            log_step(self.frame, "═══ MÉTODO: EXPANSIÓN POR COFACTORES ═══", matrix, det=None, tag="cofactor_start")
+            log_step(self.frame, f"Matriz {n}×{n} - Expandiendo por la primera fila", matrix, det=None, tag="cofactor_expand")
+
+        # Caso base: matriz 1x1
+        if n == 1:
+            return matrix[0][0]
+
+        # Caso base: matriz 2x2
+        if n == 2:
+            det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
+            if show_steps and level > 0:
+                log_step(self.frame, f"  {'  '*level}Submatriz 2×2: det = ({format_number(matrix[0][0])})×({format_number(matrix[1][1])}) - ({format_number(matrix[0][1])})×({format_number(matrix[1][0])}) = {format_number(det)}", matrix, det=format_number(det), tag=f"cofactor_2x2_level{level}")
+            return det
+
+        # Caso recursivo: expansión por la primera fila
+        det = 0
+        cofactor_details = []
+
+        for j in range(n):
+            # Signo del cofactor
+            sign = (-1) ** j
+            sign_str = "+" if sign > 0 else "-"
+
+            # Elemento de la primera fila
+            element = matrix[0][j]
+
+            # Crear submatriz eliminando fila 0 y columna j
+            submatrix = [[matrix[i][k] for k in range(n) if k != j] for i in range(1, n)]
+
+            if show_steps and level == 0:
+                log_step(self.frame, f"Cofactor C₁{num_to_sub(j+1)}: signo = {sign_str}, elemento = {format_number(element)}", submatrix, det=None, tag=f"cofactor_c1{j+1}")
+
+            # Calcular determinante de la submatriz recursivamente
+            sub_det = self.calculate_determinant_cofactors(submatrix, level + 1, show_steps=False)
+
+            # Calcular cofactor
+            cofactor = sign * element * sub_det
+            det += cofactor
+
+            if show_steps and level == 0:
+                log_step(self.frame, f"  C₁{num_to_sub(j+1)} = ({sign_str}1) × ({format_number(element)}) × det(M₁{num_to_sub(j+1)}) = ({sign_str}1) × ({format_number(element)}) × ({format_number(sub_det)}) = {format_number(cofactor)}", submatrix, det=format_number(sub_det), tag=f"cofactor_calc_c1{j+1}")
+
+            cofactor_details.append(f"{sign_str}{format_number(abs(cofactor))}")
+
+        if show_steps and level == 0:
+            log_step(self.frame, f"Determinante = {' '.join(cofactor_details)} = {format_number(det)}", matrix, det=format_number(det), tag="cofactor_result")
+
+        return det
+
     #-----------------------
     # DETERMINANTE (expansion de cofactores)
     #-----------------------
@@ -203,23 +311,5 @@ class CramerMethod(Matrix):
         ok = all(d <= self.tolerance for d in diffs)
         return {'ok': ok, 'differences': diffs}
     
-def run_crammer():
-    rows, cols = inputs_matrix()
-    
-    matrix, vector = Matrix.make_equation(rows, cols)
-    print(print_equation(matrix, vector))
-    
-    if rows != cols:
-        print("Error: Cramer solo acepta sistemas cuadrados (mismo número de ecuaciones y variables).")
-        return
-    
-    crammer = CramerMethod(matrix, vector)
-    result = crammer.solve()
-    
-    print_frame(crammer.frame)
-    print(print_equation(matrix, vector))
-    print_summary(result)
-    
-    
 # Hacer disponible para importación
-__all__ = ['CramerMethod', 'run_crammer']
+__all__ = ['CramerMethod']

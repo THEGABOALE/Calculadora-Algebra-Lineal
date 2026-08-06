@@ -17,20 +17,32 @@ Entradas
 - A: list[list[float]]     b: list[float] (len(b) == filas(A))
 
 Dependencias (internas)
-- models.Matrix.Matrix (para estructura y pretty-print de matriz)
-- utils.printMethods (log_step, print_frame, print_equation, print_summary)
-- models.system_solver.GaussSolver (analyze_argumented, solve_from_upper)
+- core.matrix.Matrix (para estructura y pretty-print de matriz)
+- utils.printMethods (log_step)
+- core.system_solver.gauss_solver (analyze_argumented, solve_from_upper)
+
+El runner interactivo vive en cli.method_runners; aquí no se imprime nada.
 """
 
 from __future__ import annotations
 import copy
 from typing import Any, Dict, List, Optional, Tuple
 from math import isclose 
-from models.Matrix import Matrix
-from utils.printMethods import log_step, print_summary, print_equation, print_frame
-from linear_algebra_calculator.utils.EquationFunctions import format_number
-from models.system_solver.GaussSolver import analyze_argumented, solve_from_upper
-from helpers.inputsmatrix import inputs_matrix
+from core.matrix import Matrix
+from core.system_solver.gauss_solver import analyze_argumented, solve_from_upper
+from utils.EquationFunctions import format_number
+from utils.printMethods import log_step, print_parametric_solution_from_rref
+from core.matrix_tools import determinant, is_singular
+
+def _una_linea(texto: str) -> str:
+    """Aplana un texto multilínea para usarlo como paso del frame.
+
+    log_step usa la descripción como clave del dict, y print_frame /
+    frame_to_html la pintan en una sola línea; la forma paramétrica viene en
+    dos (la expresión y la declaración de parámetros).
+    """
+    return " · ".join(parte.strip() for parte in texto.splitlines() if parte.strip())
+
 
 class GaussJordanMethod(Matrix):
     """
@@ -41,7 +53,7 @@ class GaussJordanMethod(Matrix):
     - Registro de operaciones y análisis del sistema.
 
     Uso típico:
-        A, b = Matrix.make_equation(m, n)
+        A, b = make_equation(m, n)   # cli.inputsmatrix, o cualquier fuente de datos
         gj = GaussJordanMethod(A, b)
         gj.run()                 # RREF con logs
         result = gj.solve_and_log()
@@ -49,11 +61,30 @@ class GaussJordanMethod(Matrix):
     
     def __init__(self, matriz: List[List[float]], b: Optional[List[float]]) -> None:
         if b is None:
-            raise ValueError("GaussJordanMethod requiere A y b (usa Matrix.make_equation).")
+            raise ValueError("GaussJordanMethod requiere A y b.")
         
         if len(b) != len(matriz):
             raise ValueError("El vector b debe tener la misma cantidad de filas que A.")
-        
+
+        # Validaciones de forma y tipo (rama Sistemas). Van antes de construir la
+        # aumentada a propósito: el list(map(float, ...)) de abajo ya reventaría
+        # con un ValueError/TypeError genérico de float(), y estas comprobaciones
+        # quedarían inalcanzables. Aquí sí dan un mensaje que dice qué pasa.
+        if not matriz or not all(isinstance(row, list) for row in matriz):
+            raise ValueError("La matriz A no puede estar vacía y debe ser una lista de listas.")
+
+        cols = len(matriz[0])
+        if not all(len(row) == cols for row in matriz):
+            raise ValueError("Todas las filas de la matriz A deben tener la misma cantidad de columnas.")
+
+        for row in matriz:
+            for val in row:
+                if not isinstance(val, (int, float)):
+                    raise TypeError("Todos los elementos de A deben ser numéricos (int o float).")
+        for val in b:
+            if not isinstance(val, (int, float)):
+                raise TypeError("Todos los elementos del vector b deben ser numéricos (int o float).")
+
         # Construir matriz aumentada [A | b] y delegar tamaños a Matrix
         aug = [list(map(float, row)) + [float(bi)] for row, bi in zip(matriz, b)]
         super().__init__(copy.deepcopy(aug))
@@ -71,7 +102,10 @@ class GaussJordanMethod(Matrix):
         # Determinante: solo relevante si A es cuadrada y no escalamos (aquí se escala para RREF),
         # así que lo mantenemos informativo (no lo reportamos).
         self.determinante: Optional[float] = None
-        
+        # Determina si el sistema es homogéneo (todos los valores de b son 0)
+        self.is_homogeneous = all(isclose(bi, 0.0, abs_tol=self.tolerance) for bi in self.b)
+
+
     # ----------------------
     # Helpers numéricos
     # ----------------------
@@ -208,6 +242,22 @@ class GaussJordanMethod(Matrix):
     def run(self) -> Dict[str, Dict[str, Any]]:
         """Ejecuta forward + backward (RREF) con registro de pasos."""
         self.frame = {}
+        # Tipo de sistema como primer paso del registro (rama Sistemas). Va aquí y
+        # no en __init__ porque la línea de arriba vacía el frame: registrarlo en
+        # el constructor, como venía en la rama, lo dejaba siempre fuera del log.
+        msg = "Sistema homogéneo (b = 0)" if self.is_homogeneous else "Sistema no homogéneo (b ≠ 0)"
+        log_step(self.frame, msg, self.matriz, det=None, tag="homogeneity_check")
+        # Calcular determinante de A (si es cuadrada) usando Gauss-Jordan y registrar
+        try:
+            det = determinant(self.A, tol=self.tolerance)
+            self.determinante = det
+            log_step(self.frame, f"Determinante de A = {format_number(det)}", self.matriz, det=det, tag="det")
+            sing = self.is_singular()
+            sing_msg = "singular" if sing else "no singular" if sing is not None else "no aplicable"
+            log_step(self.frame, f"Estado de singularidad: {sing_msg}", self.matriz, det=det, tag="singularity")
+        except Exception:
+            # si no es cuadrada o falla, no interrumpimos el proceso
+            pass
         self.forward_elimination()
         self.backward_elimination_and_normalize()
         return self.frame
@@ -228,25 +278,103 @@ class GaussJordanMethod(Matrix):
         info = self.analyze()
         status = info.get("status")
         pivots = info.get("pivots", [])
-        log_step(self.frame, f"Resumen: Tipo de solución = {status}", self.matriz, det=None, tag="summary")
+        # Detección explícita de homogeneidad y dependencia lineal en el resumen
+        tipo_sistema = "homogéneo" if self.is_homogeneous else "no homogéneo"
+        # 'rank' sale de find_pivots_from_upper, que sólo escanea las columnas de
+        # coeficientes (range(n)), así que ya es rank(A) y no el de la aumentada.
+        # La clave "rank_A" que se consultaba antes no existe en ese dict.
+        rank_A = info.get("rank", 0)
+        n_vars = self.columnas - 1
+        # Dependencia de FILAS: las m filas de A son dependientes sii rank(A) < m.
+        # El criterio anterior, rank < min(filas, n_vars), fallaba con más filas
+        # que columnas: una 3x2 de rango 2 daba "independiente", cuando 3 vectores
+        # en R² son necesariamente dependientes.
+        dependent = rank_A < self.filas
+        dependencia = "dependiente" if dependent else "independiente"
+        log_step(self.frame, f"Resumen: Tipo de solución = {status} | Sistema {tipo_sistema} | Filas de A {dependencia}", self.matriz, det=None, tag="summary")
 
         if status == "inconsistent":
             log_step(self.frame, "Sistema inconsistente: no existe solución", self.matriz, det=None, tag="inconsistent")
             return {**info, "solution": None}
 
-        # Solución particular (variables libres = 0)
+        # Solución particular y paramétrica
         result = solve_from_upper(self.matriz, pivots=pivots, tol=self.tolerance)
         sol = result.get("solution")
+        basic = result.get("basic_vars", [])
+        free = result.get("free_vars", [])
+        # Forma paramétrica (B3). Antes se leía result["parametric_solution"], una
+        # clave que solve_from_upper() nunca devuelve, así que `parametric` era
+        # siempre None y los bloques `if parametric:` de abajo eran código muerto.
+        # self.matriz ya está en RREF cuando se llega aquí (run() corrió antes),
+        # que es justo lo que print_parametric_solution_from_rref espera.
+        # Sólo tiene sentido con variables libres; con solución única la función
+        # devolvería el listado de valores, que ya se registra como "solution".
+        parametric = None
+        if status == "infinite":
+            parametric = print_parametric_solution_from_rref(self.matriz, tol=self.tolerance)
+
+        # Log incondicional de la solución particular. Estaba en main y en la rama
+        # Vectores, y se perdió al integrar HomoNohomo, que lo repartió entre las
+        # ramas de análisis: para status == "infinite" la única vía que quedaba era
+        # el bloque `if parametric:`, que nunca se ejecuta (B3). Se restaura aquí
+        # para no registrar menos que antes.
         if sol is not None:
             sol_str = [format_number(v) for v in sol]
             log_step(self.frame, f"Solución particular (libres=0): [{', '.join(sol_str)}]", self.matriz, det=None, tag="solution")
 
-        basic = result.get("basic_vars", [])
-        free = result.get("free_vars", [])
         def idxs_to_vars(idxs): return "None" if not idxs else ", ".join(f"x{(i+1)}" for i in idxs)
         log_step(self.frame, f"Variables básicas: {idxs_to_vars(basic)} | Variables libres: {idxs_to_vars(free)}", self.matriz, det=None, tag="vars")
 
-        return result
+        dep_msg = "Las filas de A son linealmente dependientes." if dependent else "Las filas de A son linealmente independientes."
+        log_step(self.frame, dep_msg, self.matriz, det=None, tag="dependency_check")
+
+        # Análisis combinado (homogeneidad + tipo de solución)
+        if self.is_homogeneous:
+            if status == "unique":
+                log_step(self.frame, "Sistema homogéneo con única solución trivial (x = 0).", self.matriz, det=None, tag="homogeneous_unique")
+                if sol is not None:
+                    sol_str = [format_number(v) for v in sol]
+                    log_step(self.frame, f"Solución trivial: [{', '.join(sol_str)}]", self.matriz, det=None, tag="trivial_solution")
+            elif status == "infinite":
+                log_step(self.frame, "Sistema homogéneo con infinitas soluciones (existen vectores no triviales en el núcleo).", self.matriz, det=None, tag="homogeneous_infinite")
+                if parametric:
+                    log_step(self.frame, f"Solución paramétrica (no trivial): {_una_linea(parametric)}", self.matriz, det=None, tag="parametric_solution")
+        else:
+            if status == "unique":
+                if sol is not None:
+                    sol_str = [format_number(v) for v in sol]
+                    # Solución particular + no trivial
+                    log_step(self.frame, f"Solución particular + no trivial: [{', '.join(sol_str)}]", self.matriz, det=None, tag="particular_solution")
+            elif status == "infinite":
+                log_step(self.frame, "Sistema no homogéneo con infinitas soluciones (dependencia entre ecuaciones).", self.matriz, det=None, tag="nonhom_infinite")
+                # Solución general con variables libres simbólicas.
+                # print_parametric_solution_from_rref ya nombra las libres s1, s2, …
+                # y las básicas x₁, x₂, …; el .replace("x", "s") que había aquí
+                # convertía también las básicas en s₁ y corrompía la expresión.
+                if parametric:
+                    log_step(self.frame, f"Solución general (paramétrica): {_una_linea(parametric)}", self.matriz, det=None, tag="parametric_solution")
+
+        # Conclusión final sobre el sistema
+        conclusion = f"Conclusión: El sistema es {tipo_sistema}, las filas de A son {dependencia}, rango(A) = {rank_A}. "
+        if self.is_homogeneous:
+            if status == "unique":
+                conclusion += f"Ax=0 con rango A = n -> única solución trivial."
+            elif status == "infinite":
+                conclusion += f"Ax=0 con rango A < n -> infinitas soluciones (no triviales)."
+        else:
+            if status == "unique":
+                conclusion += f"Ax=b con rango A = n -> única solución particular (no trivial)."
+            elif status == "infinite":
+                conclusion += f"Ax=b con rango A < n -> infinitas soluciones generales (paramétricas)."
+        log_step(self.frame, conclusion, self.matriz, det=None, tag="conclusion")
+
+        return {**result,
+            "parametric_solution": parametric,
+            "tipo_sistema": tipo_sistema,
+            "dependencia": dependencia,
+            "determinant": self.determinante,
+            "is_singular": self.is_singular()
+           }
 
     # ----------------------
     # Chequeos útiles
@@ -263,24 +391,5 @@ class GaussJordanMethod(Matrix):
             return None  # no aplica (A no es cuadrada)
         info = self.analyze()
         return info.get("rank", 0) < n
-        
-# -------- Runner --------
-def run_gauss_jordan() -> None:
-    """Runner interactivo: pide A y b, ejecuta Gauss–Jordan y muestra proceso + resumen."""
-    rows, cols = inputs_matrix()
-    matriz, vector = Matrix.make_equation(rows, cols)
 
-    # Mostrar sistema ingresado (formato algebraico)
-    print(print_equation(matriz, vector))
-
-    # Ejecutar Gauss-Jordan con logs
-    gj = GaussJordanMethod(matriz, vector)
-    gj.run()
-    results = gj.solve_and_log()
-
-    # Imprimir proceso y resumen
-    print_frame(gj.frame)
-    print(print_equation(matriz, vector))
-    print_summary(results)
-
-__all__ = ["GaussJordanMethod", "run_gauss_jordan"]
+__all__ = ["GaussJordanMethod"]

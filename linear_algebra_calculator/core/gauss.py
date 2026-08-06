@@ -1,9 +1,33 @@
-from .matrix import Matrix
+"""
+MÉTODO DE GAUSS (eliminación hacia adelante) CON LOGS
+
+Propósito
+- Triangular la matriz aumentada [A | b] y resolver por sustitución hacia atrás.
+- Registrar cada paso en `self.frame`, igual que Gauss-Jordan.
+
+Contrato (dos pasos, el mismo que GaussJordanMethod)
+    g = GaussMethod(A, b)
+    g.gauss_method()        # elimina y deja self.matriz en forma triangular
+    r = g.solve_and_log()   # sólo analiza y resume lo ya eliminado
+
+Pivoteo parcial POR FILAS. No se intercambian columnas: hacerlo permuta las
+variables y aquí no hay forma de deshacer esa permutación al presentar la
+solución. Ver el commit que unificó este archivo para la evidencia.
+
+Dependencias (internas)
+- core.matrix.Matrix
+- core.system_solver.gauss_solver (analyze_argumented, solve_from_upper)
+- utils.printMethods (log_step)
+
+El runner interactivo vive en cli.method_runners; aquí no se imprime nada.
+"""
+
+from core.matrix import Matrix
 from math import isclose
 import copy
 from typing import Any, Dict, List, Optional, Tuple
 
-from .system_solver.gauss_solver import solve_from_upper, analyze_argumented
+from core.system_solver.gauss_solver import solve_from_upper, analyze_argumented
 from utils.printMethods import log_step
 
 from utils.EquationFunctions import format_number, num_to_sub
@@ -185,85 +209,4 @@ class GaussMethod(Matrix):
         log_step(self.frame, f"Fila {fila_a+1} <-> Fila {fila_b+1}", self.matriz,
                 det=(format_number(self.determinante) if self.filas == self.columnas else None), tag="swap_rows")
 
-    def swipe_col(self, col_a, col_b) -> None:
-        for fila in range(self.filas):
-            temp = self.matriz[fila][col_a]
-            self.matriz[fila][col_a] = self.matriz[fila][col_b]
-            self.matriz[fila][col_b] = temp
-        if self.filas == self.columnas:
-            self.determinante *= -1.0
-        log_step(self.frame, f"Columna {col_a+1} <-> Columna {col_b+1}", self.matriz,
-                det=(format_number(self.determinante) if self.filas == self.columnas else None), tag="swap_cols")
-
-    def triangular_reduction(self, col):
-        if col >= self.filas or col >= self.columnas:
-            return
-        pivote = self.matriz[col][col]
-        if isclose(pivote, 0.0, abs_tol=self.tolerance):
-            log_step(self.frame, f"Pivote ≈ 0 en columna {col+1}, no se reduce", self.matriz,
-                    det=(format_number(self.determinante) if self.filas == self.columnas else None), tag="no_pivot_for_reduction")
-            return
-        log_step(self.frame,
-            f"Pivote usado para reducción: A[{col+1},{col+1}] = {format_number(pivote)}", self.matriz,
-            det=(format_number(self.determinante) if self.filas == self.columnas else None), tag="pivot_use")
-        for fila in range(col + 1, self.filas):
-            valor_actual = self.matriz[fila][col]
-            if isclose(valor_actual, 0.0, abs_tol=self.tolerance):
-                continue
-            factor = valor_actual / pivote
-            nueva_fila = []
-            for i in range(self.columnas):
-                nuevo_valor = self.matriz[fila][i] - factor * self.matriz[col][i]
-                if isclose(nuevo_valor, 0.0, abs_tol=self.tolerance):
-                    nuevo_valor = 0.0
-                nueva_fila.append(nuevo_valor)
-            self.matriz[fila] = nueva_fila
-            log_step(self.frame,f"F{fila+1} -> F{fila+1} - {format_number(factor)}*F{col+1}",
-                    self.matriz, det=(format_number(self.determinante) if self.filas == self.columnas else None),
-                    tag="elim")
-
-    def pivote(self, col:int):
-        if col >= self.filas or col >= self.columnas:
-            return
-        row_option = -1
-        col_option = col
-        distance_option = float('inf')
-        for fila in range(col, self.filas):
-            valor = self.matriz[fila][col]
-            if isclose(valor, 0.0, abs_tol=self.tolerance):
-                continue
-            distance = abs(valor -1.0)
-            if isclose(valor, 1.0, abs_tol=self.tolerance):
-                row_option = fila
-                distance_option = 0.0
-                break
-            elif distance < distance_option:
-                distance_option = distance
-                row_option = fila
-        if row_option != -1 and not isclose(self.matriz[row_option][col], 1.0, abs_tol=self.tolerance):
-            for col_alt in range(col+1, self.columnas):
-                valor = self.matriz[col][col_alt]
-                if isclose(valor, 0.0, abs_tol=self.tolerance):
-                    continue
-                distance = abs(valor-1.0)
-                if isclose(valor, 1.0, abs_tol=self.tolerance):
-                    col_option = col_alt
-                    distance_option = 0.0
-                    break
-                elif distance < distance_option:
-                    distance_option = distance
-                    col_option = col_alt
-        if row_option == -1:
-            log_step(self.frame, f"No hay pivote en la columna {col+1}.", self.matriz,
-                    det=(format_number(self.determinante) if self.filas == self.columnas else None), tag="no_pivot")
-            return
-        pivot_val = self.matriz[row_option][col_option]
-        log_step(self.frame, f"Pivote elegido: A[{row_option+1},{col_option+1}] = {format_number(pivot_val)}",
-            self.matriz, det=(format_number(self.determinante) if self.filas == self.columnas else None), tag="pivot")
-        if col_option != col:
-            self.swipe_col(col, col_option)
-            return
-        if row_option != col:
-            self.swipe_rows(col, row_option)
-            return
-
+__all__ = ['GaussMethod']

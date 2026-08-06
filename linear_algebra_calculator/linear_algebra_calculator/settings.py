@@ -116,9 +116,11 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 STATIC_URL = '/static/'
-STATICFILES_DIRS = [
-    BASE_DIR / 'linear_algebra_calculator' / 'calculator' / 'static',
-]
+# El estático vive en calculator/static/ y lo encuentra AppDirectoriesFinder,
+# porque 'calculator' está en INSTALLED_APPS. La entrada que había aquí
+# apuntaba a BASE_DIR/linear_algebra_calculator/calculator/static, con un
+# nivel de más (BASE_DIR ya es linear_algebra_calculator/), así que nunca
+# existió: era redundante y disparaba staticfiles.W004 en cada check.
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

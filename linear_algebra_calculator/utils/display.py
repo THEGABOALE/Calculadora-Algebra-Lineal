@@ -20,7 +20,7 @@ Complejidad:
 """
 
 from typing import List, Optional
-from models.Matrix import Matrix
+from core.matrix import Matrix
 from utils.printMethods import print_equation
 
 def _fmt(v: float) -> str:
@@ -63,14 +63,4 @@ def mostrar_sistema_ecuaciones(
     print("\nSistema de ecuaciones:")
     print(print_equation(matrix.matriz, vector))
 
-def mostrar_sistema_desde_input(
-    cntFilas: int,
-    cntColums: int,
-    nombres_vars: Optional[List[str]] = None, # mantenido por compatibilidad (no usado aquí)
-    mostrar_matriz: bool = True,
-) -> None:
-    """Conveniencia: pide A y b (make_equation) y muestra el sistema."""
-    matriz, vector = Matrix.make_equation(cntFilas, cntColums)
-    A = Matrix(matriz)
-    mostrar_sistema_ecuaciones(A, vector, nombres_vars, mostrar_matriz)
-    
+__all__ = ['mostrar_sistema_ecuaciones']
