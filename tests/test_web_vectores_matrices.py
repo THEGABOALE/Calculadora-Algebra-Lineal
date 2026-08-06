@@ -84,6 +84,18 @@ class TestVectorResolution(unittest.TestCase):
         self.assertEqual(r.status_code, 200)
         self.assertIn('Resultado:</b> 5', r.content.decode('utf-8'))
 
+    def test_acepta_fraccion_con_numerador_decimal(self):
+        # Fija la corrección de la consolidación fraction_utils -> EquationFunctions:
+        # "3.5/2" (numerador decimal) se rechazaba en la web antes de esa consolidación.
+        # parse_fraction("3.5/2") = 1.75; v=(1.75, 1) w=(1, 1) -> v+w=(2.75, 2) = (11/4, 2)
+        r = self.client.post('/vectorResolution/', {
+            'n': '2', 'method': 'suma', 'v_0': '3.5/2', 'v_1': '1', 'w_0': '1', 'w_1': '1',
+        })
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode('utf-8')
+        self.assertNotIn('Error en la entrada', html)
+        self.assertIn('11/4, 2', html)
+
     def test_rechaza_campos_vacios(self):
         r = self.client.post('/vectorResolution/', {
             'n': '2', 'method': 'suma', 'v_0': '', 'v_1': '3', 'w_0': '1', 'w_1': '1',
@@ -119,6 +131,18 @@ class TestMatrixOperationResolution(unittest.TestCase):
         })
         self.assertEqual(r.status_code, 200)
         self.assertIn('Resultado:</b> -2', r.content.decode('utf-8'))
+
+    def test_acepta_fraccion_con_numerador_decimal(self):
+        # Misma corrección que en TestVectorResolution, ahora sobre una celda de
+        # la matriz: det([[1.75, 0], [0, 1]]) = 1.75 = 7/4.
+        r = self.client.post('/matrixOperationResolution/', {
+            'rows': '2', 'cols': '2', 'method': 'determinante',
+            'matrix_0_0': '3.5/2', 'matrix_0_1': '0', 'matrix_1_0': '0', 'matrix_1_1': '1',
+        })
+        self.assertEqual(r.status_code, 200)
+        html = r.content.decode('utf-8')
+        self.assertNotIn('Error en la entrada', html)
+        self.assertIn('Resultado:</b> 7/4', html)
 
     def test_inversa(self):
         # A=[[4,7],[2,6]] -> A^-1 = [[3/5,-7/10],[-1/5,2/5]] = [[0.6,-0.7],[-0.2,0.4]]
