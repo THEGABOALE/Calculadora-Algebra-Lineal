@@ -308,7 +308,7 @@ def print_parametric_solution_from_rref(U: List[List[float]], tol: float = 1e-12
     lines.append(f"(Parámetros: {params})")
     return "\n".join(lines)
 
-___all__ = ["log_step", "format_matrix", "print_frame", "print_equation",
+__all__ = ["log_step", "format_matrix", "print_frame", "print_equation",
            "print_summary", "print_parametric_solution_from_rref",
            "print_determinant_menu", "print_determinant_result",
            "compare_determinant_methods"]

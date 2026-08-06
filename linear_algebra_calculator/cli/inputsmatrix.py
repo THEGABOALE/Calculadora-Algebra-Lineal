@@ -98,4 +98,4 @@ def make_equation(cntFilas: int, cntColums: int):
                 print(ValueError)
     return matriz, vector
 
-__all__ = ['inputs_matrix', 'make_matrix', 'make_equation', 'read_matriz_only']  # typo heredado, ver B5 (Fase 8)
+__all__ = ['inputs_matrix', 'make_matrix', 'make_equation', 'read_matrix_only']
