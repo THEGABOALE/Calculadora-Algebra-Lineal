@@ -4,7 +4,7 @@ from core.gauss_jordan import GaussJordanMethod
 from core.vector import Vector
 from core.vector_tools import linear_combination_verification_steps, matrix_vector_product_steps
 from core.matrix_tools import determinant, inverse, rank_of, nullspace_vector, transpose
-from .fraction_utils import parse_fraction, format_number
+from utils.EquationFunctions import parse_fraction, format_number
 from utils.printMethods import log_step
 from utils.html_display import equation_to_html, summary_to_html, frame_to_html, matrix_to_html
 
