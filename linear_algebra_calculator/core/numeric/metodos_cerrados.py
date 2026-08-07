@@ -182,12 +182,17 @@ def metodo_biseccion(
         xr = (a + b) / 2.0
         fxr = evaluar(f, xr, f_str)
         fa = evaluar(f, a, f_str)
+        fb = evaluar(f, b, f_str)
 
         error_actual = calcular_error_relativo(xr, xr_anterior) if i > 1 else float("inf")
         longitud = b - a
 
         historial.append(
-            {"iteracion": i, "a": a, "b": b, "xr": xr, "f(xr)": fxr, "error": error_actual}
+            {
+                "iteracion": i, "a": a, "b": b, "xr": xr,
+                "f(a)": fa, "f(b)": fb, "f(xr)": fxr,
+                "error": error_actual,
+            }
         )
         detalles.append(_detalle_iteracion(i, a, b, xr, fxr, error_actual))
 
