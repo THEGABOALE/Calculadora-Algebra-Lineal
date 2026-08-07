@@ -3,65 +3,60 @@ MÉTODOS ABIERTOS DE BÚSQUEDA DE RAÍCES
 - Newton-Raphson
 - Secante
 
-Estos métodos no requieren intervalo, pero necesitan punto(s) inicial(es).
+No requieren un intervalo con cambio de signo: parten de uno o dos puntos
+iniciales.
 
-Nota de seguridad (decisión existente, no de esta portación): evaluar_funcion
-usa eval() sobre la función y, opcionalmente, la derivada que escribe el
-usuario, acotado con __builtins__ vacío y el mismo safe_dict que
-metodos_cerrados.py. Ver la nota allí; no se toca aquí tampoco.
+DERIVADA: Newton-Raphson usa derivada simbólica (sympy) en vez de diferencias
+centrales con h=1e-8. Es exacta y no arrastra error de truncamiento. Se
+conserva el parámetro `derivada` para quien quiera forzar una escrita a mano,
+pero ya no hace falta pedírsela al usuario.
+
+CRITERIO DE PARO: acá sólo aplica el error relativo porcentual entre
+aproximaciones sucesivas. El criterio por longitud de intervalo que soportan
+los métodos cerrados no tiene sentido sin intervalo.
+
+DEGENERACIONES: derivada idénticamente nula, f'(x_k) = 0 en una iteración y
+denominador nulo en la secante ahora levantan excepción en vez de devolver un
+dict con 'advertencia'. Son condiciones donde la fórmula no está definida, no
+resultados aproximados: devolver una "raíz" en ese caso era afirmar algo que
+el método no calculó.
 """
 
-import math
-from typing import Callable, List, Dict, Optional
+from typing import Any, Dict, List, Optional
 
-def evaluar_funcion(f_str: str, x: float) -> float:
-    """
-    Evalúa una función ingresada como string en un punto x.
-    """
-    safe_dict = {
-        'x': x,
-        'sin': math.sin,
-        'cos': math.cos,
-        'tan': math.tan,
-        'exp': math.exp,
-        'log': math.log,
-        'log10': math.log10,
-        'sqrt': math.sqrt,
-        'abs': abs,
-        'pi': math.pi,
-        'e': math.e,
+from core.numeric._expresiones import (
+    a_latex,
+    compilar,
+    derivar,
+    error_relativo as calcular_error_relativo,
+    evaluar,
+)
+
+
+def _validar_tolerancia(tolerancia: float) -> None:
+    if tolerancia <= 0:
+        raise ValueError(f"La tolerancia debe ser positiva (tolerancia={tolerancia}).")
+
+
+def _conclusion(metodo: str, raiz: float, iteraciones: int) -> Dict[str, Any]:
+    return {
+        "raiz": raiz,
+        "iteraciones": iteraciones,
+        "criterio_paro": "error_relativo < tolerancia",
+        "latex": (
+            rf"\text{{{metodo} converge en }} {iteraciones} \text{{ iteraciones. }}"
+            rf"\text{{La raíz aproximada es }} x_r = {raiz:.6f}."
+        ),
     }
-    try:
-        f_str = f_str.replace('^', '**')
-        return float(eval(f_str, {"__builtins__": {}}, safe_dict))
-    except Exception as e:
-        raise ValueError(f"Error al evaluar f(x) en x = {x}: {e}")
 
 
-def calcular_derivada_numerica(f_str: str, x: float, h: float = 1e-8) -> float:
-    """
-    Calcula la derivada numérica usando diferencias centrales.
-    f'(x) ≈ [f(x+h) - f(x-h)] / (2h)
-    """
-    try:
-        f_mas = evaluar_funcion(f_str, x + h)
-        f_menos = evaluar_funcion(f_str, x - h)
-        return (f_mas - f_menos) / (2 * h)
-    except Exception as e:
-        raise ValueError(f"Error al calcular derivada en x = {x}: {e}")
-
-
-def calcular_error_relativo(x_nuevo: float, x_viejo: float) -> float:
-    """
-    Calcula el error relativo porcentual.
-    """
-    if abs(x_nuevo) < 1e-15:
-        return 0.0
-    return abs((x_nuevo - x_viejo) / x_nuevo) * 100
-
-
-def metodo_newton_raphson(f_str: str, x0: float, error_deseado: float,
-                          max_iter: int = 100, derivada_str: Optional[str] = None) -> Dict:
+def metodo_newton_raphson(
+    f_str: str,
+    x0: float,
+    tolerancia: float,
+    max_iter: int = 100,
+    derivada: Optional[str] = None,
+) -> Dict:
     """
     Método de Newton-Raphson para encontrar raíces.
 
@@ -70,320 +65,177 @@ def metodo_newton_raphson(f_str: str, x0: float, error_deseado: float,
     Parámetros:
     - f_str: función como string
     - x0: punto inicial
-    - error_deseado: tolerancia del error relativo porcentual
+    - tolerancia: umbral del error relativo porcentual
     - max_iter: máximo número de iteraciones
-    - derivada_str: derivada como string (si None, se calcula numéricamente)
+    - derivada: derivada como string; si es None se deriva simbólicamente
 
-    Retorna:
-    - Dict con: raiz, iteraciones, historial, error_final
+    Levanta:
+    - ValueError si la derivada es idénticamente cero (función constante)
+    - ZeroDivisionError si f'(x_k) = 0 en alguna iteración
     """
-    historial = []
-    x_actual = x0
-    error_actual = float('inf')
+    _validar_tolerancia(tolerancia)
+    f, expr, x = compilar(f_str)
+    fprime, dexpr = derivar(expr, x, derivada)
+
+    historial: List[Dict] = []
+    detalles: List[Dict] = []
+    x_actual = float(x0)
+    x_nuevo = x_actual
+    error_actual = float("inf")
 
     for i in range(1, max_iter + 1):
-        # Evaluar función
-        fx = evaluar_funcion(f_str, x_actual)
+        fx = evaluar(f, x_actual, f_str)
+        dfx = evaluar(fprime, x_actual, f_str)
 
-        # Calcular derivada
-        if derivada_str:
-            dfx = evaluar_funcion(derivada_str, x_actual)
-        else:
-            dfx = calcular_derivada_numerica(f_str, x_actual)
+        if dfx == 0:
+            raise ZeroDivisionError(
+                f"En la iteración {i} se obtuvo f'(x_k) = 0, lo que produce una "
+                "división entre cero en la fórmula de Newton-Raphson."
+            )
 
-        # Verificar que la derivada no sea cero
-        if abs(dfx) < 1e-15:
-            return {
-                'raiz': x_actual,
-                'iteraciones': i,
-                'historial': historial,
-                'error_final': error_actual,
-                'metodo': 'Newton-Raphson',
-                'advertencia': 'Derivada muy pequeña (cerca de cero)'
-            }
-
-        # Calcular siguiente aproximación
         x_nuevo = x_actual - fx / dfx
+        error_actual = calcular_error_relativo(x_nuevo, x_actual) if i > 1 else float("inf")
 
-        # Calcular error relativo
-        if i > 1:
-            error_actual = calcular_error_relativo(x_nuevo, x_actual)
-        else:
-            error_actual = float('inf')
-
-        # Guardar información
-        historial.append({
-            'iteracion': i,
-            'x': x_actual,
-            'f(x)': fx,
-            "f'(x)": dfx,
-            'x_nuevo': x_nuevo,
-            'error': error_actual
-        })
-
-        # Verificar convergencia
-        if error_actual < error_deseado and i > 1:
-            return {
-                'raiz': x_nuevo,
-                'iteraciones': i,
-                'historial': historial,
-                'error_final': error_actual,
-                'metodo': 'Newton-Raphson'
+        historial.append(
+            {
+                "iteracion": i,
+                "x": x_actual,
+                "f(x)": fx,
+                "f'(x)": dfx,
+                "x_nuevo": x_nuevo,
+                "error": error_actual,
             }
+        )
+        detalles.append(
+            {
+                "iteracion": i,
+                "lineas": [
+                    rf"x_{{{i}}} = {x_actual:.6f}",
+                    rf"f(x_{{{i}}}) = {fx:.6e}",
+                    rf"f'(x_{{{i}}}) = {dfx:.6e}",
+                    rf"x_{{{i + 1}}} = x_{{{i}}} - \frac{{f(x_{{{i}}})}}{{f'(x_{{{i}}})}} = {x_nuevo:.6f}",
+                ]
+                + ([rf"E_a = {error_actual:.6f}\%"] if error_actual != float("inf") else []),
+            }
+        )
 
-        # Verificar si f(x) está muy cerca de cero
-        if abs(fx) < 1e-15:
+        if error_actual < tolerancia and i > 1:
             return {
-                'raiz': x_actual,
-                'iteraciones': i,
-                'historial': historial,
-                'error_final': error_actual,
-                'metodo': 'Newton-Raphson',
-                'nota': 'f(x) ≈ 0 alcanzado'
+                "raiz": x_nuevo,
+                "iteraciones": i,
+                "historial": historial,
+                "error_final": error_actual,
+                "metodo": "Newton-Raphson",
+                "funcion_latex": a_latex(expr),
+                "derivada_latex": a_latex(dexpr),
+                "detalles": detalles,
+                "conclusion": _conclusion("Newton-Raphson", x_nuevo, i),
             }
 
         x_actual = x_nuevo
 
     return {
-        'raiz': x_nuevo,
-        'iteraciones': max_iter,
-        'historial': historial,
-        'error_final': error_actual,
-        'metodo': 'Newton-Raphson',
-        'advertencia': 'Alcanzado número máximo de iteraciones'
+        "raiz": x_nuevo,
+        "iteraciones": max_iter,
+        "historial": historial,
+        "error_final": error_actual,
+        "metodo": "Newton-Raphson",
+        "funcion_latex": a_latex(expr),
+        "derivada_latex": a_latex(dexpr),
+        "detalles": detalles,
+        "conclusion": _conclusion("Newton-Raphson", x_nuevo, max_iter),
+        "advertencia": "Alcanzado número máximo de iteraciones",
     }
 
 
-def metodo_secante(f_str: str, x0: float, x1: float, error_deseado: float, max_iter: int = 100) -> Dict:
+def metodo_secante(
+    f_str: str,
+    x0: float,
+    x1: float,
+    tolerancia: float,
+    max_iter: int = 100,
+) -> Dict:
     """
     Método de la Secante para encontrar raíces.
 
-    Fórmula: x_{n+1} = x_n - f(x_n) * (x_n - x_{n-1}) / (f(x_n) - f(x_{n-1}))
+    Fórmula: x_{n+1} = x_n - f(x_n)·(x_n - x_{n-1}) / (f(x_n) - f(x_{n-1}))
 
-    Parámetros:
-    - f_str: función como string
-    - x0: primer punto inicial
-    - x1: segundo punto inicial
-    - error_deseado: tolerancia del error relativo porcentual
-    - max_iter: máximo número de iteraciones
-
-    Retorna:
-    - Dict con: raiz, iteraciones, historial, error_final
+    Levanta:
+    - ZeroDivisionError si f(x_n) - f(x_{n-1}) = 0 en alguna iteración
     """
-    historial = []
-    x_anterior = x0
-    x_actual = x1
-    error_actual = float('inf')
+    _validar_tolerancia(tolerancia)
+    f, expr, _ = compilar(f_str)
+
+    historial: List[Dict] = []
+    detalles: List[Dict] = []
+    x_anterior = float(x0)
+    x_actual = float(x1)
+    x_nuevo = x_actual
+    error_actual = float("inf")
 
     for i in range(1, max_iter + 1):
-        # Evaluar función en ambos puntos
-        fx_anterior = evaluar_funcion(f_str, x_anterior)
-        fx_actual = evaluar_funcion(f_str, x_actual)
+        fx_anterior = evaluar(f, x_anterior, f_str)
+        fx_actual = evaluar(f, x_actual, f_str)
 
-        # Verificar que f(x_n) - f(x_{n-1}) no sea cero
         denominador = fx_actual - fx_anterior
-        if abs(denominador) < 1e-15:
-            return {
-                'raiz': x_actual,
-                'iteraciones': i,
-                'historial': historial,
-                'error_final': error_actual,
-                'metodo': 'Secante',
-                'advertencia': 'Denominador muy pequeño (f(x_n) ≈ f(x_{n-1}))'
-            }
+        if denominador == 0:
+            raise ZeroDivisionError(
+                f"En la iteración {i} se obtuvo f(x_n) - f(x_(n-1)) = 0: la secante "
+                "es horizontal y el método no puede continuar."
+            )
 
-        # Calcular siguiente aproximación
         x_nuevo = x_actual - fx_actual * (x_actual - x_anterior) / denominador
+        error_actual = calcular_error_relativo(x_nuevo, x_actual) if i > 1 else float("inf")
 
-        # Calcular error relativo
-        if i > 1:
-            error_actual = calcular_error_relativo(x_nuevo, x_actual)
-        else:
-            error_actual = float('inf')
+        historial.append(
+            {
+                "iteracion": i,
+                "x_{n-1}": x_anterior,
+                "x_n": x_actual,
+                "f(x_{n-1})": fx_anterior,
+                "f(x_n)": fx_actual,
+                "x_{n+1}": x_nuevo,
+                "error": error_actual,
+            }
+        )
+        detalles.append(
+            {
+                "iteracion": i,
+                "lineas": [
+                    rf"x_{{{i + 1}}} = x_n - \frac{{f(x_n)(x_n - x_{{n-1}})}}"
+                    rf"{{f(x_n) - f(x_{{n-1}})}} = {x_nuevo:.6f}",
+                    rf"f(x_n) = {fx_actual:.6e}",
+                ]
+                + ([rf"E_a = {error_actual:.6f}\%"] if error_actual != float("inf") else []),
+            }
+        )
 
-        # Guardar información
-        historial.append({
-            'iteracion': i,
-            'x_{n-1}': x_anterior,
-            'x_n': x_actual,
-            'f(x_{n-1})': fx_anterior,
-            'f(x_n)': fx_actual,
-            'x_{n+1}': x_nuevo,
-            'error': error_actual
-        })
-
-        # Verificar convergencia
-        if error_actual < error_deseado and i > 1:
+        if error_actual < tolerancia and i > 1:
             return {
-                'raiz': x_nuevo,
-                'iteraciones': i,
-                'historial': historial,
-                'error_final': error_actual,
-                'metodo': 'Secante'
+                "raiz": x_nuevo,
+                "iteraciones": i,
+                "historial": historial,
+                "error_final": error_actual,
+                "metodo": "Secante",
+                "funcion_latex": a_latex(expr),
+                "detalles": detalles,
+                "conclusion": _conclusion("Secante", x_nuevo, i),
             }
 
-        # Verificar si f(x) está muy cerca de cero
-        if abs(fx_actual) < 1e-15:
-            return {
-                'raiz': x_actual,
-                'iteraciones': i,
-                'historial': historial,
-                'error_final': error_actual,
-                'metodo': 'Secante',
-                'nota': 'f(x) ≈ 0 alcanzado'
-            }
-
-        # Actualizar para siguiente iteración
         x_anterior = x_actual
         x_actual = x_nuevo
 
     return {
-        'raiz': x_nuevo,
-        'iteraciones': max_iter,
-        'historial': historial,
-        'error_final': error_actual,
-        'metodo': 'Secante',
-        'advertencia': 'Alcanzado número máximo de iteraciones'
+        "raiz": x_nuevo,
+        "iteraciones": max_iter,
+        "historial": historial,
+        "error_final": error_actual,
+        "metodo": "Secante",
+        "funcion_latex": a_latex(expr),
+        "detalles": detalles,
+        "conclusion": _conclusion("Secante", x_nuevo, max_iter),
+        "advertencia": "Alcanzado número máximo de iteraciones",
     }
 
 
-def imprimir_tabla_newton(historial: List[Dict]) -> None:
-    """
-    Imprime tabla de iteraciones para Newton-Raphson.
-    """
-    print("\n" + "="*90)
-    print(f"{'Iter':<6} {'x_n':<14} {'f(x_n)':<14} {'f\'(x_n)':<14} {'x_{n+1}':<14} {'Error %':<12}")
-    print("="*90)
-
-    for reg in historial:
-        iter_num = reg['iteracion']
-        x = reg['x']
-        fx = reg['f(x)']
-        dfx = reg["f'(x)"]
-        x_nuevo = reg['x_nuevo']
-        error = reg['error']
-
-        error_str = "---" if error == float('inf') else f"{error:.6f}"
-
-        print(f"{iter_num:<6} {x:<14.8f} {fx:<14.6e} {dfx:<14.6e} {x_nuevo:<14.8f} {error_str:<12}")
-
-    print("="*90)
-
-
-def imprimir_tabla_secante(historial: List[Dict]) -> None:
-    """
-    Imprime tabla de iteraciones para Secante.
-    """
-    print("\n" + "="*100)
-    print(f"{'Iter':<6} {'x_{n-1}':<14} {'x_n':<14} {'f(x_n)':<14} {'x_{n+1}':<14} {'Error %':<12}")
-    print("="*100)
-
-    for reg in historial:
-        iter_num = reg['iteracion']
-        x_ant = reg['x_{n-1}']
-        x_act = reg['x_n']
-        fx_act = reg['f(x_n)']
-        x_nuevo = reg['x_{n+1}']
-        error = reg['error']
-
-        error_str = "---" if error == float('inf') else f"{error:.6f}"
-
-        print(f"{iter_num:<6} {x_ant:<14.8f} {x_act:<14.8f} {fx_act:<14.6e} {x_nuevo:<14.8f} {error_str:<12}")
-
-    print("="*100)
-
-
-def imprimir_resultado(resultado: Dict) -> None:
-    """
-    Imprime el resultado final del método.
-    """
-    print("\n" + "="*60)
-    print(f"RESULTADO FINAL - Método: {resultado['metodo']}")
-    print("="*60)
-    print(f"Raíz aproximada: {resultado['raiz']:.10f}")
-    print(f"Iteraciones totales: {resultado['iteraciones']}")
-    print(f"Error relativo final: {resultado['error_final']:.6f}%")
-
-    if 'advertencia' in resultado:
-        print(f"\n⚠️  ADVERTENCIA: {resultado['advertencia']}")
-
-    if 'nota' in resultado:
-        print(f"\nℹ️  Nota: {resultado['nota']}")
-
-    print("="*60)
-
-
-def solicitar_datos_newton() -> tuple:
-    """
-    Solicita datos para Newton-Raphson.
-    """
-    print("\n--- Ingreso de datos para Newton-Raphson ---")
-    print("Ejemplos de funciones:")
-    print("  - x**2 - 4")
-    print("  - x**3 - 2*x - 5")
-    print("  - exp(x) - 3*x")
-
-    f_str = input("\nIngresa la función f(x): ").strip()
-
-    usar_derivada = input("¿Deseas ingresar la derivada manualmente? (s/n): ").strip().lower()
-    derivada_str = None
-    if usar_derivada == 's':
-        derivada_str = input("Ingresa f'(x): ").strip()
-        print("(Si la derivada es incorrecta, se usará aproximación numérica)")
-
-    while True:
-        try:
-            x0 = float(input("Ingresa el valor inicial x₀: "))
-            break
-        except ValueError:
-            print("Error: ingresa un número válido.")
-
-    while True:
-        try:
-            error_deseado = float(input("Ingresa el error deseado (ej: 0.001): "))
-            if error_deseado <= 0:
-                print("Error: el error debe ser positivo.")
-                continue
-            break
-        except ValueError:
-            print("Error: ingresa un número válido.")
-
-    return f_str, x0, error_deseado, derivada_str
-
-
-def solicitar_datos_secante() -> tuple:
-    """
-    Solicita datos para el método de la Secante.
-    """
-    print("\n--- Ingreso de datos para Método de la Secante ---")
-    print("Ejemplos de funciones:")
-    print("  - x**2 - 4")
-    print("  - x**3 - 2*x - 5")
-    print("  - exp(x) - 3*x")
-
-    f_str = input("\nIngresa la función f(x): ").strip()
-
-    while True:
-        try:
-            x0 = float(input("Ingresa el primer valor inicial x₀: "))
-            x1 = float(input("Ingresa el segundo valor inicial x₁: "))
-
-            if x0 == x1:
-                print("Error: x₀ y x₁ deben ser diferentes.")
-                continue
-
-            break
-        except ValueError:
-            print("Error: ingresa números válidos.")
-
-    while True:
-        try:
-            error_deseado = float(input("Ingresa el error deseado (ej: 0.001): "))
-            if error_deseado <= 0:
-                print("Error: el error debe ser positivo.")
-                continue
-            break
-        except ValueError:
-            print("Error: ingresa un número válido.")
-
-    return f_str, x0, x1, error_deseado
+__all__ = ["metodo_newton_raphson", "metodo_secante"]

@@ -12,22 +12,18 @@ el programa entero reventaba con ModuleNotFoundError antes de mostrar el
 menú (B1). Aquí ya apuntan a core.numeric, donde viven ambos módulos.
 """
 
-from core.numeric.metodos_cerrados import (
-    metodo_biseccion,
-    metodo_regla_falsa,
-    solicitar_datos_metodo_cerrado,
-    imprimir_tabla_iteraciones,
-    imprimir_resultado as imprimir_resultado_cerrado
-)
+from core.numeric.metodos_cerrados import metodo_biseccion, metodo_regla_falsa
+from core.numeric.metodos_abiertos import metodo_newton_raphson, metodo_secante
 
-from core.numeric.metodos_abiertos import (
-    metodo_newton_raphson,
-    metodo_secante,
-    solicitar_datos_newton,
-    solicitar_datos_secante,
+from cli.numeric_io import (
+    imprimir_resultado_abierto,
+    imprimir_resultado_cerrado,
+    imprimir_tabla_iteraciones,
     imprimir_tabla_newton,
     imprimir_tabla_secante,
-    imprimir_resultado as imprimir_resultado_abierto
+    solicitar_datos_metodo_cerrado,
+    solicitar_datos_newton,
+    solicitar_datos_secante,
 )
 
 
@@ -41,11 +37,11 @@ def run_biseccion():
         print("╚══════════════════════════════════════════╝")
 
         # Solicitar datos
-        f_str, a, b, error_deseado = solicitar_datos_metodo_cerrado()
+        f_str, a, b, tolerancia = solicitar_datos_metodo_cerrado()
 
         # Ejecutar método
         print("\nEjecutando método de Bisección...")
-        resultado = metodo_biseccion(f_str, a, b, error_deseado)
+        resultado = metodo_biseccion(f_str, a, b, tolerancia)
 
         # Mostrar tabla de iteraciones
         print("\n📊 TABLA DE ITERACIONES:")
@@ -75,11 +71,11 @@ def run_regla_falsa():
         print("╚══════════════════════════════════════════╝")
 
         # Solicitar datos
-        f_str, a, b, error_deseado = solicitar_datos_metodo_cerrado()
+        f_str, a, b, tolerancia = solicitar_datos_metodo_cerrado()
 
         # Ejecutar método
         print("\nEjecutando método de Regla Falsa...")
-        resultado = metodo_regla_falsa(f_str, a, b, error_deseado)
+        resultado = metodo_regla_falsa(f_str, a, b, tolerancia)
 
         # Mostrar tabla de iteraciones
         print("\n📊 TABLA DE ITERACIONES:")
@@ -109,11 +105,11 @@ def run_newton_raphson():
         print("╚══════════════════════════════════════════╝")
 
         # Solicitar datos
-        f_str, x0, error_deseado, derivada_str = solicitar_datos_newton()
+        f_str, x0, tolerancia, derivada = solicitar_datos_newton()
 
         # Ejecutar método
         print("\nEjecutando método de Newton-Raphson...")
-        resultado = metodo_newton_raphson(f_str, x0, error_deseado, derivada_str=derivada_str)
+        resultado = metodo_newton_raphson(f_str, x0, tolerancia, derivada=derivada)
 
         # Mostrar tabla de iteraciones
         print("\n📊 TABLA DE ITERACIONES:")
@@ -128,10 +124,10 @@ def run_newton_raphson():
         print(f"está aproximadamente en x = {resultado['raiz']:.10f}")
         print(f"con un error relativo de {resultado['error_final']:.6f}%")
         print(f"después de {resultado['iteraciones']} iteraciones.")
-        if derivada_str:
+        if derivada:
             print("(Se usó la derivada proporcionada por el usuario)")
         else:
-            print("(Se usó aproximación numérica de la derivada)")
+            print(f"(Se derivó simbólicamente: f'(x) = {resultado['derivada_latex']})")
 
     except Exception as e:
         print(f"\n❌ Error: {e}")
@@ -147,11 +143,11 @@ def run_secante():
         print("╚══════════════════════════════════════════╝")
 
         # Solicitar datos
-        f_str, x0, x1, error_deseado = solicitar_datos_secante()
+        f_str, x0, x1, tolerancia = solicitar_datos_secante()
 
         # Ejecutar método
         print("\nEjecutando método de la Secante...")
-        resultado = metodo_secante(f_str, x0, x1, error_deseado)
+        resultado = metodo_secante(f_str, x0, x1, tolerancia)
 
         # Mostrar tabla de iteraciones
         print("\n📊 TABLA DE ITERACIONES:")
