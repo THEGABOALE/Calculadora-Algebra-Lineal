@@ -155,3 +155,34 @@ class MatrixReduceSerializer(serializers.Serializer):
 
         return data
 
+
+class MatrixDeterminantSerializer(serializers.Serializer):
+    method = serializers.ChoiceField(choices=["sarrus", "cofactors", "cramer"])
+    A = serializers.ListField(child=serializers.ListField(child=serializers.FloatField()))
+
+    @staticmethod
+    def _is_matrix(M) -> bool:
+        return isinstance(M, list) and len(M) > 0 and all(isinstance(row, list) for row in M)
+
+    def validate(self, data):
+        method = data["method"]
+
+        if method == "cramer":
+            # No es un error de forma: 'cramer' es una opción reconocida,
+            # pero no calcula determinantes -- resuelve sistemas (necesita A
+            # y b). Se rechaza acá, explícito, en vez de redirigirlo en
+            # silencio a cofactores.
+            raise serializers.ValidationError(
+                "method='cramer' resuelve sistemas de ecuaciones, no calcula "
+                "determinantes. Usá matrix/reduce con method='cramer' (Fase 7)."
+            )
+
+        A = data["A"]
+        if not self._is_matrix(A):
+            raise serializers.ValidationError("'A' no puede ser vacía.")
+        if any(len(row) != len(A[0]) for row in A):
+            raise serializers.ValidationError("Todas las filas de 'A' deben tener la misma longitud.")
+        if len(A) != len(A[0]):
+            raise serializers.ValidationError("La matriz debe ser cuadrada para calcular el determinante.")
+
+        return data

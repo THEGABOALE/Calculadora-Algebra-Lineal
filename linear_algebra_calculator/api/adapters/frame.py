@@ -1,8 +1,18 @@
 """
 Traduce el `frame` de core/ (lista ordenada de Step, ver
-utils/printMethods.py) a las dos formas que el contrato web espera. Todas las
+utils/printMethods.py) a las formas que el contrato web espera. Todas las
 fases siguientes que expongan un método de core/ con frame reusan esto: es el
 único lugar que sabe cómo se ve un Step por fuera.
+
+Hay tres formas porque ResultPretty.tsx tiene tres caminos de render
+distintos según cómo llega `steps`:
+- lista plana -> `renderStep` (frame_to_steps)
+- objeto con `.frame.step_states` -> `renderTextStepWithMatrix`, texto y
+  snapshot en arrays separados pero alineados por índice
+  (frame_to_step_states_envelope)
+- objeto con `.frame.states`, sólo si `method` es sarrus/cofactors/cramer
+  -> `renderDeterminantState`, cada estado autocontenido con su propio
+  `operation` (frame_to_states_envelope)
 
 Verificado contra un frame real de 15 pasos (core/matrix_tools.inverse sobre
 una 3x3), no sólo contra un caso trivial de un paso.
@@ -71,6 +81,33 @@ def frame_to_step_states_envelope(frame: Optional[Frame]) -> Dict[str, Any]:
         "frame": {
             "step_states": [
                 {"matrix": step["matrix"], "det": step["det"], "tag": step["tag"]}
+                for step in frame
+            ]
+        },
+        "text_steps": [step["text"] for step in frame],
+    }
+
+
+def frame_to_states_envelope(frame: Optional[Frame]) -> Dict[str, Any]:
+    """Frame -> {"frame": {"states": [...]}, "text_steps": [...]}.
+
+    Es el shape que matrix/determinant usa para sarrus/cofactors/cramer:
+    ResultPretty.tsx tiene una rama especial para esos `method` que lee
+    `result.steps.frame.states` directo (no `step_states`), y cada estado
+    es AUTOCONTENIDO -- a diferencia de `step_states`, acá no hay un array
+    de texto aparte: `renderDeterminantState` lee `st.operation` del mismo
+    objeto que trae la matriz, así que cada entrada lleva su propio texto.
+    """
+    frame = frame or []
+    return {
+        "frame": {
+            "states": [
+                {
+                    "operation": step["text"],
+                    "matrix": step["matrix"],
+                    "det": step["det"],
+                    "tag": step["tag"],
+                }
                 for step in frame
             ]
         },
