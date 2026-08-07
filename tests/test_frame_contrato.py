@@ -99,11 +99,40 @@ class TestCramerRegistraTodosLosDeterminantes(unittest.TestCase):
     def test_el_html_muestra_las_n_mas_1_expansiones_de_sarrus(self):
         cramer = CramerMethod([f[:] for f in self.A], list(self.b))
         cramer.solve()
-        # show_det=False: frame_to_html todavía no tolera det no numérico y
-        # Cramer registra det ya formateado como str. Ortogonal a este test.
-        html = frame_to_html(cramer.frame, show_det=False)
+        # show_det ya no necesita desactivarse: frame_to_html tolera que
+        # Cramer registre det ya formateado como str (ver TestFrameToHtmlToleraDetString).
+        html = frame_to_html(cramer.frame)
 
         self.assertEqual(html.count("Sarrus - Matriz Extendida"), len(self.A) + 1)
+
+
+class TestFrameToHtmlToleraDetString(unittest.TestCase):
+    """frame_to_html llamaba format_number(det_val) sin protección, y
+    format_number hace `num - int(num)`: revienta con TypeError si det es un
+    str. Cramer registra det ya formateado como string en ~10 llamadas (ej.
+    core/cramer.py:81, det=format_number(det)), así que cualquier frame de
+    Cramer reventaba el render HTML. print_frame ya toleraba esto con un
+    try/except; frame_to_html ahora replica el mismo criterio: intenta
+    formatear, y si falla, muestra el valor tal cual llegó."""
+
+    def test_det_string_no_revienta_el_render(self):
+        frame = [{"text": "paso", "matrix": None, "det": "5/2", "tag": None, "extra": None}]
+        html = frame_to_html(frame)  # no debe lanzar
+        self.assertIn("5/2", html)
+
+    def test_det_numerico_se_sigue_formateando_igual(self):
+        frame = [{"text": "paso", "matrix": None, "det": 5.0, "tag": None, "extra": None}]
+        html = frame_to_html(frame)
+        self.assertIn("Determinante: 5", html)
+        self.assertNotIn("Determinante: 5.0", html)
+
+    def test_cramer_real_no_revienta_con_show_det_por_defecto(self):
+        cramer = CramerMethod(
+            [[3.0, 3.0, -1.0], [1.0, 3.0, 2.0], [3.0, -2.0, 3.0]], [-2.0, 2.0, 1.0]
+        )
+        cramer.solve()
+        html = frame_to_html(cramer.frame)  # no debe lanzar TypeError
+        self.assertIn("Determinante:", html)
 
 
 if __name__ == "__main__":

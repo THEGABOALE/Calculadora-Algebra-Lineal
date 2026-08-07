@@ -84,7 +84,11 @@ def frame_to_html(frame: List[Dict[str, Any]], show_det: bool = True) -> str:
         if matrix_state:
             html.append('<div class="step-matrix">' + matrix_to_html(matrix_state) + '</div>')
         if show_det and det_val is not None:
-            html.append(f"<div class='step-det'>Determinante: {format_number(det_val)}</div>")
+            try:
+                det_str = format_number(det_val)
+            except Exception:
+                det_str = det_val
+            html.append(f"<div class='step-det'>Determinante: {det_str}</div>")
         if tag:
             html.append(f"<span class='log-tag'>(tag: {tag})</span>")
         html.append('</div>')
