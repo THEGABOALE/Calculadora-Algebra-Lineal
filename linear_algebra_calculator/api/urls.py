@@ -1,9 +1,10 @@
 from django.urls import path
 
-from api.views import MatrixOperateView
+from api.views import MatrixOperateView, MatrixReduceView
 
 app_name = "api"
 
 urlpatterns = [
     path("matrix/operate", MatrixOperateView.as_view(), name="matrix-operate"),
+    path("matrix/reduce", MatrixReduceView.as_view(), name="matrix-reduce"),
 ]
