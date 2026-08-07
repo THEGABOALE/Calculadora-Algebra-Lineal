@@ -103,7 +103,7 @@ def ecuationResolution(request):
                 # una longitud de x distinta de la de b/rows.
                 x_vec = Vector(vector)
                 y, steps = matrix_vector_product_steps(matrix, x_vec)
-                frame = {}
+                frame = []
                 log_step(frame, 'Entrada: A y x', matrix, det=None, tag='ax_input')
                 for i, line in enumerate(steps, start=1):
                     log_step(frame, f'Fila {i}: {line}', None, det=None, tag='ax_step')
@@ -212,7 +212,7 @@ def vectorResolution(request):
         v = Vector([parse_fraction(x.strip()) for x in v_values])
         w = Vector([parse_fraction(x.strip()) for x in w_values])
 
-        frame = {}
+        frame = []
         log_step(frame, 'Vectores de entrada: v y w', [v.data, w.data], det=None, tag='input')
 
         if method == 'suma':
@@ -293,7 +293,7 @@ def matrixOperationResolution(request):
     try:
         matrix = [[parse_fraction(cell.strip()) for cell in row] for row in matrix_values_list]
 
-        frame = {}
+        frame = []
         log_step(frame, 'Matriz de entrada (A)', matrix, det=None, tag='input')
 
         if method == 'determinante':

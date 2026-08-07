@@ -16,7 +16,7 @@ class TestCramerTresMetodos(unittest.TestCase):
 
     def test_sarrus_cofactores_y_matrix_tools_coinciden(self):
         det_sarrus = self.cramer.calculate_determinant_sarrus(self.A)
-        self.cramer.frame = {}
+        self.cramer.frame = []
         det_cofactores = self.cramer.calculate_determinant_cofactors(self.A)
         det_mt = mt_determinant(self.A)
 

@@ -26,7 +26,7 @@ class CramerMethod(Matrix):
         
         self.tolerance: float=1e-12
         
-        self.frame: Dict[str, Dict[str, Any]] = {}
+        self.frame: List[Dict[str, Any]] = []
         
         self.determinant_A: Optional[float] = None
         self.solution: Optional[List[float]] = None
@@ -206,7 +206,7 @@ class CramerMethod(Matrix):
         Raises:
             ValueError: Si el sistema no tiene solución única
         """
-        self.frame = {}
+        self.frame = []
         self.solution = None
         
         # Calculo de determinante

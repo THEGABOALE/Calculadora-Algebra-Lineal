@@ -49,13 +49,13 @@ class GaussMethod(Matrix):
             self.b = None
         self.determinante:float = 1.0
         self.tolerance = 1e-13 # Notacion cientifica
-        self.frame: Dict[str, Dict[str, Any]] = {}
+        self.frame: List[Dict[str, Any]] = []
         self.pivots: List[Tuple[int,int]] = []
         self.analize: Dict[str, Any] = {}
 
-    def gauss_method(self) -> dict[str, dict[str, any]]:
+    def gauss_method(self) -> List[Dict[str, Any]]:
         # Unifica el registro de pasos y la lógica de resolución, como en Gauss-Jordan
-        self.frame = {}
+        self.frame = []
         self.determinante = 1.0
         if not getattr(self, "is_augmented", False):
             raise RuntimeError("La instancia no contiene una matriz aumentada")
