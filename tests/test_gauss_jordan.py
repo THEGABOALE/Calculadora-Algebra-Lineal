@@ -8,7 +8,7 @@ def resolver(A, b):
     g = GaussJordanMethod([fila[:] for fila in A], list(b))
     g.run()
     resultado = g.solve_and_log()
-    tags = {v["tag"] for v in g.frame.values()}
+    tags = {v["tag"] for v in g.frame}
     return g, resultado, tags
 
 
@@ -121,7 +121,7 @@ class TestGaussJordanValidaciones(unittest.TestCase):
         # Se registra en run(), no en __init__: run() vacía el frame.
         g = GaussJordanMethod([[1.0, 2.0], [2.0, 4.0]], [0.0, 0.0])
         g.run()
-        primer_tag = next(iter(g.frame.values()))["tag"]
+        primer_tag = g.frame[0]["tag"]
         self.assertEqual(primer_tag, "homogeneity_check")
 
 

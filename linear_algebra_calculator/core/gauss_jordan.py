@@ -96,7 +96,7 @@ class GaussJordanMethod(Matrix):
         
         # Log y tolerancias
         self.tolerance: float = 1e-12
-        self.frame: Dict[str, Dict[str, Any]] = {}
+        self.frame: List[Dict[str, Any]] = []
         self.pivots: List[Tuple[int, int]] = []   # lista de (fila, col) de pivotes detectados en forward
 
         # Determinante: solo relevante si A es cuadrada y no escalamos (aquí se escala para RREF),
@@ -239,9 +239,9 @@ class GaussJordanMethod(Matrix):
     # ----------------------
     # Orquestador
     # ----------------------
-    def run(self) -> Dict[str, Dict[str, Any]]:
+    def run(self) -> List[Dict[str, Any]]:
         """Ejecuta forward + backward (RREF) con registro de pasos."""
-        self.frame = {}
+        self.frame = []
         # Tipo de sistema como primer paso del registro (rama Sistemas). Va aquí y
         # no en __init__ porque la línea de arriba vacía el frame: registrarlo en
         # el constructor, como venía en la rama, lo dejaba siempre fuera del log.

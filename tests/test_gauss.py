@@ -36,7 +36,7 @@ class TestGaussPivoteo(unittest.TestCase):
 
         for obtenido, esperado in zip(r["solution"], [2.0, 1.0]):
             self.assertAlmostEqual(obtenido, esperado, places=9)
-        tags = {v["tag"] for v in g.frame.values()}
+        tags = {v["tag"] for v in g.frame}
         self.assertNotIn("swap_cols", tags)
 
     def test_la_columna_b_nunca_entra_en_los_coeficientes(self):
@@ -49,7 +49,7 @@ class TestGaussPivoteo(unittest.TestCase):
 
         for obtenido, esperado in zip(r["solution"], [11.0, -7.0]):
             self.assertAlmostEqual(obtenido, esperado, places=9)
-        tags = {v["tag"] for v in g.frame.values()}
+        tags = {v["tag"] for v in g.frame}
         self.assertNotIn("swap_cols", tags)
 
     def test_solucion_verifica_el_sistema(self):

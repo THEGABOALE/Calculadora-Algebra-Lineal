@@ -70,11 +70,12 @@ def summary_to_html(result: Optional[Dict[str, Any]]) -> str:
         html.append("<b>Solución particular:</b> None (sistema inconsistente)")
     return '<br>'.join(html)
 
-def frame_to_html(frame: Dict[str, Dict[str, Any]], show_det: bool = True) -> str:
-    if not frame or not isinstance(frame, dict) or len(frame) == 0:
+def frame_to_html(frame: List[Dict[str, Any]], show_det: bool = True) -> str:
+    if not frame or not isinstance(frame, list) or len(frame) == 0:
         return '<em>No hay pasos registrados para este método.</em>'
     html = []
-    for step, payload in frame.items():
+    for payload in frame:
+        step = payload.get("text")
         matrix_state = payload.get("matrix")
         det_val = payload.get("det")
         tag = payload.get("tag")

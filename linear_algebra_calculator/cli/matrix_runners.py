@@ -224,7 +224,7 @@ def _chain_with_result(current: Matrix):
                     print("La matriz debe ser cuadrada para calcular su inversa.")
                     continue
                 try:
-                    frame: dict = {}
+                    frame: list = []
                     Ainv, steps = inverse(current, frame=frame)
                     print_frame(frame)
                     print("Pasos detallados (inversa):")
@@ -355,7 +355,7 @@ def run_matrix_inverse():
         pass
 
     try:
-        frame: dict = {}
+        frame: list = []
         Ainv, steps = inverse(A, frame=frame)
         # Imprimir el frame con los estados intermedios (swap, scale, elim, cofactors, adjugate, det, result)
         print_frame(frame)

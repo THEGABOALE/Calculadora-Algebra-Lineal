@@ -1,26 +1,55 @@
 """
 PAra imprimir y registrar pasos de métodos de álgebra lineal.
 
-Funciones diseñadas para ser independientes de los models. Se espera un frame
-con la estructura:
-dict[step_str] -> {"matrix": list[list[float]], "det": Optional[float], "tag": Optional[str]}
+Funciones diseñadas para ser independientes de los models. El `frame` es una
+LISTA ORDENADA de pasos:
+
+    list[Step] donde Step = {
+        "index":  int,                       # posición en la secuencia
+        "text":   str,                       # descripción legible del paso
+        "matrix": Optional[list[list[float]]],
+        "det":    Optional[float],
+        "tag":    Optional[str],
+        "extra":  Optional[dict],            # payload específico del método
+    }
+
+Antes era `dict[step_str] -> {...}`, es decir, indexado por la descripción. Eso
+hacía que dos pasos con el mismo texto se pisaran y el segundo borrara al
+primero, en silencio. El caso real: Cramer calcula n+1 determinantes y todos
+registran el label constante "Sarrus - Matriz Extendida", así que sólo
+sobrevivía el último y los pasos por variable desaparecían del procedimiento.
+Medido antes del cambio: 423 pasos perdidos en 300 sistemas.
+
+La lista preserva el orden y admite descripciones repetidas, que es justamente
+lo que un registro de pasos necesita. `log_step` conserva su firma: los métodos
+de `core/` no se enteran del cambio.
 """
 
 from __future__ import annotations
-import copy 
+import copy
 from typing import Any, Callable, Dict, List, Optional
 from utils.EquationFunctions import num_to_sub, format_number, parse_fraction
-Frame = Dict[str, Dict[str, Any]]
 
-def log_step(frame: Frame, step: str, matrix_state: List[List[float]], det: Optional[float] = None, tag: Optional[str] = None) -> None:
-    """Añade un paso al `frame`.
-    - frame: diccionario donde se guardan los pasos.
+Step = Dict[str, Any]
+Frame = List[Step]
+
+def log_step(frame: Frame, step: str, matrix_state: List[List[float]], det: Optional[float] = None, tag: Optional[str] = None, extra: Optional[Dict[str, Any]] = None) -> None:
+    """Añade un paso al final del `frame`.
+    - frame: lista donde se acumulan los pasos, en orden.
     - step: descripción legible del paso.
     - matrix_state: estado de la matriz (se hace deepcopy internamente).
     - det: valor del determinante (si aplica) o None.
     - tag: etiqueta corta (ej. 'swap', 'elim', 'det').
+    - extra: datos propios del método (triples de Sarrus, menores, cofactores...).
     """
-    frame[step] = {"matrix": copy.deepcopy(matrix_state), "det": det, "tag":tag}
+    frame.append({
+        "index": len(frame),
+        "text": step,
+        "matrix": copy.deepcopy(matrix_state),
+        "det": det,
+        "tag": tag,
+        "extra": extra,
+    })
     
     
 def _to_str_cell(value: Any) -> str:
@@ -47,7 +76,8 @@ def format_matrix(matrix: List[List[float]]) -> str:
     return "\n".join(lines)
 
 def print_frame(frame: Frame, show_det: bool = True, sep: str = "-"*40)->None:
-    for step, payload in frame.items():
+    for payload in frame:
+        step = payload.get("text")
         matrix_state = payload.get("matrix")
         det_val = payload.get("det")
         tag = payload.get("tag")
@@ -203,7 +233,7 @@ def compare_determinant_methods(cramer_obj, matrix: List[List[float]]):
     print("\n" + "─" * 60)
     print("MÉTODO 1: CRAMER (BÁSICO)")
     print("─" * 60)
-    cramer_obj.frame = {}
+    cramer_obj.frame = []
     det1 = cramer_obj.calculate_determinant(matrix, show_sarrus=False)
     results['Cramer'] = det1
     print(f"Determinante (Cramer): {format_number(det1)}")
@@ -212,7 +242,7 @@ def compare_determinant_methods(cramer_obj, matrix: List[List[float]]):
     print("\n" + "─" * 60)
     print("MÉTODO 2: REGLA DE SARRUS")
     print("─" * 60)
-    cramer_obj.frame = {}
+    cramer_obj.frame = []
     det2 = cramer_obj.calculate_determinant_sarrus(matrix)
     results['Sarrus'] = det2
     print_frame(cramer_obj.frame, show_det=False)
@@ -222,7 +252,7 @@ def compare_determinant_methods(cramer_obj, matrix: List[List[float]]):
     print("\n" + "─" * 60)
     print("MÉTODO 3: EXPANSIÓN POR COFACTORES")
     print("─" * 60)
-    cramer_obj.frame = {}
+    cramer_obj.frame = []
     det3 = cramer_obj.calculate_determinant_cofactors(matrix)
     results['Cofactores'] = det3
     print_frame(cramer_obj.frame, show_det=False)
