@@ -186,3 +186,69 @@ class MatrixDeterminantSerializer(serializers.Serializer):
             raise serializers.ValidationError("La matriz debe ser cuadrada para calcular el determinante.")
 
         return data
+
+
+class VectorOperateSerializer(serializers.Serializer):
+    operation = serializers.ChoiceField(choices=["add", "sub", "escalar", "comb2", "comb3", "dot"])
+    vectors = serializers.DictField(child=serializers.ListField(child=serializers.FloatField()))
+    scalars = serializers.DictField(child=serializers.FloatField(), required=False)
+
+    def validate(self, data):
+        op = data["operation"]
+        vecs = data.get("vectors") or {}
+        sc = data.get("scalars") or {}
+
+        def requerir(*nombres):
+            for nombre in nombres:
+                if nombre not in vecs:
+                    raise serializers.ValidationError(f"Falta el vector '{nombre}'.")
+
+        def misma_dimension(*nombres):
+            requerir(*nombres)
+            largos = {len(vecs[n]) for n in nombres}
+            if len(largos) != 1:
+                raise serializers.ValidationError(
+                    f"Los vectores {', '.join(nombres)} deben tener la misma dimensión."
+                )
+
+        if op in ("add", "sub"):
+            misma_dimension("u", "v")
+        elif op == "escalar":
+            requerir("u")
+            if "c" not in sc:
+                raise serializers.ValidationError("Para 'escalar' se requiere scalars.c.")
+        elif op == "comb2":
+            misma_dimension("u", "v")
+            if "c" not in sc or "d" not in sc:
+                raise serializers.ValidationError("Para 'comb2' se requieren scalars.c y scalars.d.")
+        elif op == "comb3":
+            misma_dimension("u", "v", "w")
+            if "c" not in sc or "d" not in sc:
+                raise serializers.ValidationError("Para 'comb3' se requieren scalars.c y scalars.d.")
+        elif op == "dot":
+            # dot usa las claves 'v' y 'w', no 'u' y 'v': así arma el
+            # request el frontend (payload.vectors = {v: u, w: v}).
+            misma_dimension("v", "w")
+
+        return data
+
+
+class VectorCombinationSerializer(serializers.Serializer):
+    A = serializers.ListField(child=serializers.ListField(child=serializers.FloatField()))
+    b = serializers.ListField(child=serializers.FloatField())
+
+    @staticmethod
+    def _is_matrix(M) -> bool:
+        return isinstance(M, list) and len(M) > 0 and all(isinstance(row, list) for row in M)
+
+    def validate(self, data):
+        A, b = data["A"], data["b"]
+        if not self._is_matrix(A):
+            raise serializers.ValidationError("'A' no puede ser vacía.")
+        if any(len(row) != len(A[0]) for row in A):
+            raise serializers.ValidationError("Todas las filas de 'A' deben tener la misma longitud.")
+        if len(b) != len(A):
+            raise serializers.ValidationError(
+                f"Dimensiones inconsistentes: A es {len(A)}x{len(A[0])} y b tiene longitud {len(b)}."
+            )
+        return data
