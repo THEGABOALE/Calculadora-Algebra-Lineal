@@ -108,3 +108,81 @@ class MatrixOperateSerializer(serializers.Serializer):
                 raise serializers.ValidationError("La matriz debe ser cuadrada para invertir.")
 
         return data
+
+
+class MatrixReduceSerializer(serializers.Serializer):
+    method = serializers.ChoiceField(choices=["gauss", "gauss-jordan"])
+    A = serializers.ListField(
+        child=serializers.ListField(child=serializers.FloatField()), required=False
+    )
+    b = serializers.ListField(child=serializers.FloatField(), required=False)
+    Ab = serializers.ListField(
+        child=serializers.ListField(child=serializers.FloatField()), required=False
+    )
+
+    @staticmethod
+    def _is_matrix(M) -> bool:
+        return isinstance(M, list) and len(M) > 0 and all(isinstance(row, list) for row in M)
+
+    def validate(self, data):
+        A, b, Ab = data.get("A"), data.get("b"), data.get("Ab")
+
+        if Ab is None and (A is None or b is None):
+            raise serializers.ValidationError("Enviá 'A' y 'b', o 'Ab'.")
+        if Ab is not None and (A is not None or b is not None):
+            raise serializers.ValidationError("Enviá 'Ab', o 'A' y 'b', no ambos.")
+
+        if Ab is not None:
+            if not self._is_matrix(Ab) or len(Ab[0]) < 2:
+                raise serializers.ValidationError(
+                    "'Ab' debe ser una matriz no vacía con al menos 2 columnas."
+                )
+            if any(len(row) != len(Ab[0]) for row in Ab):
+                raise serializers.ValidationError("Todas las filas de 'Ab' deben tener la misma longitud.")
+            # Última columna = b; el resto, A. Se resuelve acá para que el
+            # adaptador siempre reciba A y b ya separados.
+            data["A"] = [row[:-1] for row in Ab]
+            data["b"] = [row[-1] for row in Ab]
+        else:
+            if not self._is_matrix(A):
+                raise serializers.ValidationError("'A' no puede ser vacía.")
+            if any(len(row) != len(A[0]) for row in A):
+                raise serializers.ValidationError("Todas las filas de 'A' deben tener la misma longitud.")
+            if len(b) != len(A):
+                raise serializers.ValidationError(
+                    f"Dimensiones inconsistentes: A es {len(A)}x{len(A[0])} y b tiene longitud {len(b)}."
+                )
+
+        return data
+
+
+class MatrixDeterminantSerializer(serializers.Serializer):
+    method = serializers.ChoiceField(choices=["sarrus", "cofactors", "cramer"])
+    A = serializers.ListField(child=serializers.ListField(child=serializers.FloatField()))
+
+    @staticmethod
+    def _is_matrix(M) -> bool:
+        return isinstance(M, list) and len(M) > 0 and all(isinstance(row, list) for row in M)
+
+    def validate(self, data):
+        method = data["method"]
+
+        if method == "cramer":
+            # No es un error de forma: 'cramer' es una opción reconocida,
+            # pero no calcula determinantes -- resuelve sistemas (necesita A
+            # y b). Se rechaza acá, explícito, en vez de redirigirlo en
+            # silencio a cofactores.
+            raise serializers.ValidationError(
+                "method='cramer' resuelve sistemas de ecuaciones, no calcula "
+                "determinantes. Usá matrix/reduce con method='cramer' (Fase 7)."
+            )
+
+        A = data["A"]
+        if not self._is_matrix(A):
+            raise serializers.ValidationError("'A' no puede ser vacía.")
+        if any(len(row) != len(A[0]) for row in A):
+            raise serializers.ValidationError("Todas las filas de 'A' deben tener la misma longitud.")
+        if len(A) != len(A[0]):
+            raise serializers.ValidationError("La matriz debe ser cuadrada para calcular el determinante.")
+
+        return data
