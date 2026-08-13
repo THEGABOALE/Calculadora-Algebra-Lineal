@@ -258,7 +258,11 @@ def metodo_regla_falsa(
         longitud = b - a
 
         historial.append(
-            {"iteracion": i, "a": a, "b": b, "xr": xr, "f(xr)": fxr, "error": error_actual}
+            {
+                "iteracion": i, "a": a, "b": b, "xr": xr,
+                "f(a)": fa, "f(b)": fb, "f(xr)": fxr,
+                "error": error_actual,
+            }
         )
         detalles.append(
             {

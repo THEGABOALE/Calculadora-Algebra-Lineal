@@ -88,8 +88,8 @@ class TestVerificarIntervalo(unittest.TestCase):
 
 
 class TestSympyNoSeCargaAlArrancar(unittest.TestCase):
-    """sympy se importa dentro de las funciones que lo necesitan, nunca a
-    nivel de módulo.
+    """sympy (y, desde la Fase 5, antlr4) se importan dentro de las funciones
+    que los necesitan, nunca a nivel de módulo.
 
     cli/startup.py importa cli.numerical_methods_runners a nivel de módulo, y
     ese runner importa core.numeric.* también a nivel de módulo: si sympy se
@@ -98,23 +98,44 @@ class TestSympyNoSeCargaAlArrancar(unittest.TestCase):
     mismo problema que utils/symbolic_equations.py documenta para symengine,
     que se cargaba en cada arranque de la web.
 
+    antlr4-python3-runtime (Fase 5, api/adapters/latex.py, para
+    sympy.parsing.latex.parse_latex) es todavía más pesada que sympy y más
+    fácil de arrastrar sin querer -- está confinada al adaptador de LaTeX de
+    la API, y cli/startup.py no debería cargarla nunca: el CLI escribe
+    funciones en texto plano ("x**2 - 2"), no LaTeX.
+
     Se corre en un subproceso limpio a propósito: dentro de esta misma suite
     otros tests ya importaron sympy al llamar a los métodos, así que mirar
     sys.modules acá adentro daría un falso negativo.
     """
 
-    def _sympy_cargado_tras(self, codigo: str) -> bool:
+    def _modulos_cargados_tras(self, codigo: str, *modulos: str) -> dict:
         entorno = dict(os.environ, PYTHONPATH=_LAC_DIR, PYTHONIOENCODING="utf-8")
-        completo = f"{codigo}\nimport sys\nprint('sympy' in sys.modules)\n"
+        chequeos = "\n".join(f"print({m!r} in sys.modules)" for m in modulos)
+        completo = f"{codigo}\nimport sys\n{chequeos}\n"
         salida = subprocess.run(
             [sys.executable, "-c", completo],
             capture_output=True, text=True, cwd=_RAIZ_REPO, env=entorno,
         )
         self.assertEqual(salida.returncode, 0, f"el subproceso falló:\n{salida.stderr}")
-        return salida.stdout.strip().splitlines()[-1] == "True"
+        lineas = salida.stdout.strip().splitlines()[-len(modulos):]
+        return dict(zip(modulos, (linea == "True" for linea in lineas)))
+
+    def _sympy_cargado_tras(self, codigo: str) -> bool:
+        return self._modulos_cargados_tras(codigo, "sympy")["sympy"]
 
     def test_importar_cli_startup_no_carga_sympy(self):
         self.assertFalse(self._sympy_cargado_tras("import cli.startup"))
+
+    def test_importar_cli_startup_no_carga_antlr4_ni_rest_framework(self):
+        # cli/startup.py no toca Django (nunca llama django.setup()), así que
+        # a diferencia de calculator.views, acá ni siquiera rest_framework
+        # tendría motivo para cargarse -- es el chequeo más estricto posible.
+        cargados = self._modulos_cargados_tras(
+            "import cli.startup", "antlr4", "rest_framework"
+        )
+        self.assertFalse(cargados["antlr4"])
+        self.assertFalse(cargados["rest_framework"])
 
     def test_importar_calculator_views_no_carga_sympy(self):
         codigo = (
@@ -124,6 +145,22 @@ class TestSympyNoSeCargaAlArrancar(unittest.TestCase):
             "import calculator.views"
         )
         self.assertFalse(self._sympy_cargado_tras(codigo))
+
+    def test_importar_calculator_views_no_carga_antlr4(self):
+        # rest_framework SÍ se carga acá -- django.setup() importa todas las
+        # apps de INSTALLED_APPS, incluida 'rest_framework', sin importar qué
+        # vista se use. Eso no es el problema: antlr4 es la dependencia
+        # pesada que sólo debería tocar api/adapters/latex.py, y calculator/
+        # (la web de templates, ajena a la API) no tiene motivo para cargarla.
+        codigo = (
+            "import os, django\n"
+            "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'linear_algebra_calculator.settings')\n"
+            "django.setup()\n"
+            "import calculator.views"
+        )
+        cargados = self._modulos_cargados_tras(codigo, "antlr4", "rest_framework")
+        self.assertFalse(cargados["antlr4"])
+        self.assertTrue(cargados["rest_framework"])
 
     def test_importar_los_metodos_tampoco_lo_carga_hasta_usarlos(self):
         # Importar el módulo no debe bastar; recién al resolver aparece sympy.
@@ -135,6 +172,26 @@ class TestSympyNoSeCargaAlArrancar(unittest.TestCase):
                 "from core.numeric.metodos_cerrados import metodo_biseccion\n"
                 "metodo_biseccion('x**2 - 2', 1.0, 2.0, tolerancia=1e-6)"
             )
+        )
+
+    def test_importar_adapters_latex_no_carga_antlr4_hasta_usarlo(self):
+        entorno_api = (
+            "import os, django\n"
+            "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'linear_algebra_calculator.settings')\n"
+            "django.setup()\n"
+        )
+        self.assertFalse(
+            self._modulos_cargados_tras(
+                entorno_api + "import api.adapters.latex", "antlr4"
+            )["antlr4"]
+        )
+        self.assertTrue(
+            self._modulos_cargados_tras(
+                entorno_api
+                + "from api.adapters.latex import latex_a_texto\n"
+                + "latex_a_texto('x^2 - 2')",
+                "antlr4",
+            )["antlr4"]
         )
 
 
