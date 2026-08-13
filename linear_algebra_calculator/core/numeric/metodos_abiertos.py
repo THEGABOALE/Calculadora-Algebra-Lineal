@@ -185,6 +185,7 @@ def metodo_secante(
             )
 
         x_nuevo = x_actual - fx_actual * (x_actual - x_anterior) / denominador
+        fx_nuevo = evaluar(f, x_nuevo, f_str)
         error_actual = calcular_error_relativo(x_nuevo, x_actual) if i > 1 else float("inf")
 
         historial.append(
@@ -195,6 +196,7 @@ def metodo_secante(
                 "f(x_{n-1})": fx_anterior,
                 "f(x_n)": fx_actual,
                 "x_{n+1}": x_nuevo,
+                "f(x_{n+1})": fx_nuevo,
                 "error": error_actual,
             }
         )

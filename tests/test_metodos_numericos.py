@@ -35,6 +35,42 @@ class TestRaicesDeXCuadradoMenosDos(unittest.TestCase):
         self.assertEqual(resultado["derivada_latex"], "2 x")
 
 
+class TestHistorialRegistraLosDosExtremos(unittest.TestCase):
+    """Bisección calculaba f(a) para decidir el subintervalo y lo descartaba;
+    f(b) ni se calculaba. Un adaptador que quiera mostrar ambas ramas de la
+    tabla (yl, yu) no tiene de dónde sacarlas si el motor no las registra.
+    Mismo caso en la secante con f(x_{n+1}): se calcula recién al arrancar la
+    iteración siguiente, así que la última fila del historial nunca la tuvo."""
+
+    def test_biseccion_registra_f_de_a_y_f_de_b(self):
+        resultado = metodo_biseccion("x**2 - 2", 1.0, 2.0, tolerancia=1e-6)
+        for fila in resultado["historial"]:
+            self.assertIn("f(a)", fila)
+            self.assertIn("f(b)", fila)
+            # f(a) y f(b) deben corresponder de verdad a los extremos de esa
+            # fila, no a un valor arrastrado de otra iteración.
+            self.assertAlmostEqual(fila["f(a)"], fila["a"] ** 2 - 2, places=9)
+            self.assertAlmostEqual(fila["f(b)"], fila["b"] ** 2 - 2, places=9)
+
+    def test_biseccion_no_cambia_de_raiz_al_agregar_los_campos(self):
+        # Los campos nuevos son aditivos: evaluar f(b) no debe alterar qué
+        # subintervalo se elige ni a qué raíz converge.
+        resultado = metodo_biseccion("x**2 - 2", 1.0, 2.0, tolerancia=1e-8)
+        self.assertAlmostEqual(resultado["raiz"], RAIZ_DE_2, places=6)
+
+    def test_secante_registra_f_de_x_siguiente(self):
+        resultado = metodo_secante("x**2 - 2", 1.0, 2.0, tolerancia=1e-6)
+        for fila in resultado["historial"]:
+            self.assertIn("f(x_{n+1})", fila)
+            self.assertAlmostEqual(
+                fila["f(x_{n+1})"], fila["x_{n+1}"] ** 2 - 2, places=9
+            )
+
+    def test_secante_no_cambia_de_raiz_al_agregar_el_campo(self):
+        resultado = metodo_secante("x**2 - 2", 1.0, 2.0, tolerancia=1e-8)
+        self.assertAlmostEqual(resultado["raiz"], RAIZ_DE_2, places=6)
+
+
 class TestVerificarIntervalo(unittest.TestCase):
     def test_rechaza_intervalo_sin_cambio_de_signo(self):
         # x**2 - 2 es positiva en todo [2, 3]: no hay cambio de signo.
