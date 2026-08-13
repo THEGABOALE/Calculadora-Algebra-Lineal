@@ -258,20 +258,30 @@ class CramerMethod(Matrix):
             result = {
             'status': 'inconsistent',
             'solution': None,
-            'basic_vars': list(range(self.n_variables)),
+            # Sin solucion unica no hay 'variables basicas' que reportar: eso
+            # es una nocion de Gauss (que pivote quedo, que columna no), y la
+            # regla de Cramer no la calcula. list(range(n)) aca seria mentir
+            # "todas las variables son basicas" de un sistema que no tiene
+            # solucion.
+            'basic_vars': [],
             'free_vars': [],
             'determinant': detA
             }
             return result
-        
+
         # Si no se cumplieron las demas, indica que detA == 0 y todos detC == 0 -> infinitas soluciones
         log_step(self.frame, "Determinante de Cramer todos cero -> infinitas soluciones", self.matrix_A, det=format_number(detA), tag="infinite")
-        
-        
+
+
         result = {
             'status': 'infinite',
             'solution': 'Crammer',
-            'basic_vars': list(range(self.n_variables)),
+            # Mismo motivo que en la rama 'inconsistent': con infinitas
+            # soluciones SI hay variables libres -- justo lo contrario de
+            # "todas basicas". Cramer no las identifica (eso lo hace Gauss),
+            # asi que no se declara ninguna basica en vez de fingir que se
+            # identificaron.
+            'basic_vars': [],
             'free_vars': [],
             'determinant': detA
         }
