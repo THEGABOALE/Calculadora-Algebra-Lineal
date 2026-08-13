@@ -25,6 +25,40 @@ EJEMPLOS_FUNCIONES = (
 )
 
 
+class IngresoCancelado(Exception):
+    """El usuario decidió no reintentar un dato pedido por consola.
+
+    A propósito NO hereda de ValueError: solicitar_datos_metodo_cerrado()
+    atrapa ValueError para pedir el intervalo de nuevo, y antes esta señal
+    de "no, no quiero reintentar" se levantaba como ValueError -- caía en
+    ese mismo except, se imprimía como si fuera un error de formato, y el
+    bucle volvía a pedir el intervalo en vez de salir. Al no ser ValueError,
+    atraviesa ese except sin que nadie la atrape localmente, sale del bucle
+    y de la función, y la agarra el `except Exception` de run_biseccion/
+    run_regla_falsa en numerical_methods_runners.py -- que ya sabía mostrar
+    cualquier excepción y volver al menú.
+    """
+
+
+def _preguntar_s_n(mensaje: str) -> bool:
+    """Pide s/n hasta obtener una respuesta reconocida (case-insensitive).
+
+    Antes cualquier cosa que no fuera exactamente 's' -- un typo, Enter en
+    blanco -- se trataba como 'n' y cancelaba el ingreso sin avisar. Ahora
+    sólo 's'/'si'/'y'/'yes' cuentan como sí y 'n'/'no' como no; cualquier
+    otra respuesta se vuelve a preguntar en vez de asumir una de las dos.
+    """
+    afirmativas = {"s", "si", "sí", "y", "yes"}
+    negativas = {"n", "no"}
+    while True:
+        respuesta = input(mensaje).strip().lower()
+        if respuesta in afirmativas:
+            return True
+        if respuesta in negativas:
+            return False
+        print("Respuesta no reconocida. Respondé 's' o 'n'.")
+
+
 # ---------------------------------------------------------------- salida ----
 
 def imprimir_tabla_iteraciones(historial: List[Dict]) -> None:
@@ -176,9 +210,8 @@ def solicitar_datos_metodo_cerrado() -> Tuple[str, float, float, float]:
                 print(f"   f({b}) = {fb:.6f}")
                 print(f"   f(a)·f(b) = {fa*fb:.6f}")
 
-                continuar = input("\n¿Deseas ingresar otro intervalo? (s/n): ").strip().lower()
-                if continuar != 's':
-                    raise ValueError("Intervalo no válido")
+                if not _preguntar_s_n("\n¿Deseas ingresar otro intervalo? (s/n): "):
+                    raise IngresoCancelado("Ingreso de intervalo cancelado por el usuario.")
                 continue
 
             break
