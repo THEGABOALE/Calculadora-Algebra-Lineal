@@ -37,17 +37,31 @@ INSTALLED_APPS = [
     'django.contrib.sessions',
     'django.contrib.messages',
     'django.contrib.staticfiles',
+    'corsheaders',
+    'rest_framework',
     'calculator',
+    'api',
 ]
 
 MIDDLEWARE = [
     'django.middleware.security.SecurityMiddleware',
+    # Va antes de CommonMiddleware a propósito: corsheaders necesita procesar
+    # la request (y decorar la response) antes de que cualquier middleware
+    # posterior pueda generar una respuesta propia.
+    'corsheaders.middleware.CorsMiddleware',
     'django.contrib.sessions.middleware.SessionMiddleware',
     'django.middleware.common.CommonMiddleware',
     'django.middleware.csrf.CsrfViewMiddleware',
     'django.contrib.auth.middleware.AuthenticationMiddleware',
     'django.contrib.messages.middleware.MessageMiddleware',
     'django.middleware.clickjacking.XFrameOptionsMiddleware',
+]
+
+# El frontend (Vite) corre en localhost:5173 y src/api/client.ts usa una
+# baseURL absoluta a localhost:8000 -- el proxy de vite.config.js no
+# interviene en ese caso, así que CORS hace falta de verdad.
+CORS_ALLOWED_ORIGINS = [
+    'http://localhost:5173',
 ]
 
 ROOT_URLCONF = 'linear_algebra_calculator.urls'

@@ -1,0 +1,37 @@
+from rest_framework.response import Response
+from rest_framework.views import APIView
+from rest_framework import status
+
+from api.adapters.matrices import matrix_operate
+from api.serializers import MatrixOperateSerializer
+
+
+class MatrixOperateView(APIView):
+    """POST /api/v1/matrix/operate -- las 8 operaciones de core/matrix_tools."""
+
+    def post(self, request):
+        serializer = MatrixOperateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": serializer.errors}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            result = matrix_operate(
+                operation=data["operation"],
+                A=data.get("A"),
+                B=data.get("B"),
+                matrices=data.get("matrices"),
+                scalar=data.get("scalar"),
+            )
+        except ValueError as exc:
+            # Errores matemáticos de core/ (dimensiones que el serializer no
+            # pudo anticipar del todo, matriz singular en inverse, etc.).
+            return Response(
+                {"error": {"code": "MATRIX_OP_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
