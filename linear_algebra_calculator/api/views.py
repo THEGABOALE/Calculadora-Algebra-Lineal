@@ -5,10 +5,13 @@ from rest_framework import status
 from api.adapters.determinant import matrix_determinant
 from api.adapters.matrices import matrix_operate
 from api.adapters.reduce import matrix_reduce
+from api.adapters.vectores import linear_combination, vector_operate
 from api.serializers import (
     MatrixDeterminantSerializer,
     MatrixOperateSerializer,
     MatrixReduceSerializer,
+    VectorCombinationSerializer,
+    VectorOperateSerializer,
 )
 
 
@@ -85,6 +88,56 @@ class MatrixDeterminantView(APIView):
         except ValueError as exc:
             return Response(
                 {"error": {"code": "MATRIX_DETERMINANT_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class VectorOperateView(APIView):
+    """POST /api/v1/vectors/operate -- las 6 operaciones de core/vector.Vector."""
+
+    def post(self, request):
+        serializer = VectorOperateSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": serializer.errors}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            result = vector_operate(
+                operation=data["operation"],
+                vectors=data["vectors"],
+                scalars=data.get("scalars"),
+            )
+        except ValueError as exc:
+            return Response(
+                {"error": {"code": "VECTOR_OP_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class VectorCombinationView(APIView):
+    """POST /api/v1/vectors/combination -- Ax=b sobre core/vector_tools.py."""
+
+    def post(self, request):
+        serializer = VectorCombinationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": serializer.errors}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            result = linear_combination(A=data["A"], b=data["b"])
+        except ValueError as exc:
+            return Response(
+                {"error": {"code": "VECTOR_COMB_ERROR", "message": str(exc)}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
