@@ -195,6 +195,26 @@ class MatrixDeterminantSerializer(serializers.Serializer):
         return data
 
 
+class MatrixPropertiesSerializer(serializers.Serializer):
+    A = serializers.ListField(child=serializers.ListField(child=serializers.FloatField()))
+
+    @staticmethod
+    def _is_matrix(M) -> bool:
+        return isinstance(M, list) and len(M) > 0 and all(isinstance(row, list) for row in M)
+
+    def validate(self, data):
+        A = data["A"]
+        if not self._is_matrix(A):
+            raise serializers.ValidationError("'A' no puede ser vacía.")
+        if any(len(row) != len(A[0]) for row in A):
+            raise serializers.ValidationError("Todas las filas de 'A' deben tener la misma longitud.")
+        # No se exige cuadrada: rank_of y nullspace_vector aceptan
+        # rectangulares, e is_singular ya devuelve None (no un error) cuando
+        # A no es cuadrada. Rechazar acá duplicaría una decisión que core/ ya
+        # toma sola.
+        return data
+
+
 class VectorOperateSerializer(serializers.Serializer):
     operation = serializers.ChoiceField(choices=["add", "sub", "escalar", "comb2", "comb3", "dot"])
     vectors = serializers.DictField(child=serializers.ListField(child=serializers.FloatField()))

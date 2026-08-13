@@ -33,6 +33,11 @@ export async function matrixReduce(payload: { method: string; A?: number[][]; b?
   return res.data
 }
 
+export async function matrixProperties(payload: { A: number[][] }) {
+  const res = await client.post('api/v1/matrix/properties', payload)
+  return res.data
+}
+
 export async function vectorOperate(payload: { operation: string; vectors: Record<string, number[]>; scalars?: Record<string, number>; options?: any }) {
   const res = await client.post('api/v1/vectors/operate', payload)
   return res.data
