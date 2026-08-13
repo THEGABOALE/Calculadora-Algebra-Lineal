@@ -173,6 +173,16 @@ export const ResultPretty: React.FC<ResultPrettyProps> = ({ result }) => {
             </div>
           )}
 
+          {/* El determinante que el paso calculó. Cada estado del frame lo
+              trae ya formateado en `det` (o null si ese paso no calcula
+              ninguno); sin esto, los n+1 determinantes de Cramer llegaban al
+              navegador y se descartaban en el render. */}
+          {st.det != null && st.det !== '' && (
+            <div className="mt-2 text-xs text-purple-100">
+              <strong>Determinante:</strong> {String(st.det)}
+            </div>
+          )}
+
           {/* sarrus specific: show partials and sums */}
           {tag === 'sarrus_pos' && st.partials && (
             <div className="mt-2 text-xs text-purple-100">
@@ -218,6 +228,77 @@ export const ResultPretty: React.FC<ResultPrettyProps> = ({ result }) => {
               <div>Subdet: {st.subdet?.as_fraction ?? String(st.subdet?.as_float)}</div>
               <div className="mt-1"><strong>Cofactor:</strong> {st.cofactor?.as_fraction ?? String(st.cofactor?.as_float)}</div>
             </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Bloque propio de Cramer. `renderDeterminantState` sabe mostrar el
+  // procedimiento paso a paso, pero no el resultado de la regla: el
+  // frontend heredado mostraba UN determinante para Cramer -- que es
+  // justamente lo que Cramer no es. Acá se muestran los n+1 (det(A) y un
+  // det(Aᵢ) por variable) y la solución variable por variable, con el
+  // cociente xᵢ = det(Aᵢ)/det(A) a la vista para que se lea la regla y no
+  // sólo su resultado.
+  const renderCramerResult = (res: any, sm: any) => {
+    const dets = res?.determinants ?? [];
+    if (!dets.length) return null;
+
+    const detA = dets.find((d: any) => d.variable == null) ?? dets[0];
+    const detsPorVariable = dets.filter((d: any) => d.variable != null);
+    const solucion = sm?.solution ?? null;
+    const status = sm?.status ?? null;
+
+    const mensajeSinSolucionUnica =
+      status === 'inconsistent'
+        ? 'det(A) = 0 y algún det(Aᵢ) ≠ 0: el sistema es inconsistente, no tiene solución.'
+        : status === 'infinite'
+        ? 'det(A) = 0 y todos los det(Aᵢ) = 0: el sistema tiene infinitas soluciones. La regla de Cramer no puede describirlas — usá Gauss-Jordan para la forma paramétrica.'
+        : null;
+
+    return (
+      <div className="space-y-3">
+        <div className="p-3 rounded bg-white/3 border border-white/10">
+          <div className="text-sm font-semibold text-blue-200 mb-2">
+            Regla de Cramer — {dets.length} determinantes
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {dets.map((d: any, i: number) => (
+              <div key={i} className="p-2 rounded bg-white/3 border border-white/10">
+                <div className="flex items-baseline justify-between mb-1">
+                  <div className="text-xs font-semibold text-blue-200">{d.label}</div>
+                  <div className="text-xs text-purple-100">{d.value_pretty ?? String(d.value)}</div>
+                </div>
+                {d.matrix && renderMatrixObject(d.matrix)}
+              </div>
+            ))}
+          </div>
+        </div>
+
+        <div className="p-3 rounded bg-white/3 border border-white/10">
+          <div className="text-sm font-semibold text-blue-200 mb-2">Solución</div>
+
+          {Array.isArray(solucion) ? (
+            <ul className="space-y-1">
+              {solucion.map((xi: number, i: number) => {
+                const di = detsPorVariable[i];
+                return (
+                  <li key={i} className="text-xs text-purple-100">
+                    <span className="font-semibold">{`x${i + 1}`}</span>
+                    {di && (
+                      <span className="text-white/60">
+                        {` = ${di.label} / ${detA.label} = ${di.value_pretty ?? di.value} / ${detA.value_pretty ?? detA.value}`}
+                      </span>
+                    )}
+                    <span>{` = ${xi}`}</span>
+                  </li>
+                );
+              })}
+            </ul>
+          ) : (
+            <div className="text-xs text-purple-100">{mensajeSinSolucionUnica ?? 'Sin solución única.'}</div>
           )}
         </div>
       </div>
@@ -412,6 +493,9 @@ export const ResultPretty: React.FC<ResultPrettyProps> = ({ result }) => {
           </div>
         </div>
       )}
+
+      {/* Cramer: los n+1 determinantes y la solución por variable */}
+      {method === 'cramer' && renderCramerResult(result?.result, summary)}
 
       {/* Result matrix pretty (for sum/sub/matmul/transpose/scalar etc) */}
       {result?.result?.matrix_pretty && (

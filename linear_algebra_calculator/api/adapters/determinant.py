@@ -14,7 +14,8 @@ determinante -- así que se rechaza con 400 explícito en el serializer en vez
 de redirigirlo en silencio a cofactores, que es el alias falso que tenía el
 repo del que se porta el frontend (determinant_cramer(A) era literalmente
 `return determinant_cofactors(A)`, y el botón "Cramer" nunca mostraba un
-Cramer real). Fase 7 lo resuelve de verdad, moviéndolo a matrix/reduce.
+Cramer real). Cramer se resuelve de verdad en adapters/reduce.py, que es
+donde vive lo que resuelve sistemas; el rechazo de acá sigue en pie.
 """
 
 from __future__ import annotations
