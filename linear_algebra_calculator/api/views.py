@@ -10,6 +10,7 @@ from api.adapters.numerico import (
     newton_raphson_method,
     secant_method,
 )
+from api.adapters.properties import matrix_properties
 from api.adapters.reduce import matrix_reduce
 from api.adapters.vectores import linear_combination, vector_operate
 from api.serializers import (
@@ -17,6 +18,7 @@ from api.serializers import (
     FalsePositionSerializer,
     MatrixDeterminantSerializer,
     MatrixOperateSerializer,
+    MatrixPropertiesSerializer,
     MatrixReduceSerializer,
     NewtonRaphsonSerializer,
     SecantSerializer,
@@ -103,6 +105,29 @@ class MatrixDeterminantView(APIView):
         except ValueError as exc:
             return Response(
                 {"error": {"code": "MATRIX_DETERMINANT_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class MatrixPropertiesView(APIView):
+    """POST /api/v1/matrix/properties -- rango, singularidad y núcleo sobre core/matrix_tools."""
+
+    def post(self, request):
+        serializer = MatrixPropertiesSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": serializer.errors}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            result = matrix_properties(A=data["A"])
+        except ValueError as exc:
+            return Response(
+                {"error": {"code": "MATRIX_PROPERTIES_ERROR", "message": str(exc)}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
