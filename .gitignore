@@ -1,4 +1,10 @@
 __pycache__/
 venv/
 .venv/
-.venv 
+.venv
+
+# frontend/ (React + Vite)
+node_modules/
+dist/
+*.log
+.env 
