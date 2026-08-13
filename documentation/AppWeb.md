@@ -1,91 +1,174 @@
-# Documentación de la App Web (Django)
+# Documentación de la App Web (API REST + frontend React)
 
 > **Archivos:**\
-> `linear_algebra_calculator/calculator/` (app Django: `views.py`, `urls.py`, `templates/`, `static/`)\
-> `linear_algebra_calculator/utils/html_display.py` (el `frame` renderizado como HTML)\
-> `linear_algebra_calculator/linear_algebra_calculator/` (settings, urls raíz, wsgi/asgi)
+> `linear_algebra_calculator/api/` (app Django: `views.py`, `serializers.py`, `urls.py`, `adapters/`)\
+> `linear_algebra_calculator/linear_algebra_calculator/` (settings, urls raíz, wsgi/asgi)\
+> `frontend/` (React + TypeScript + Vite, en la raíz del repo)
 
-Documento técnico que describe cómo la app Django consume el mismo motor matemático (`core/`) que el CLI, y el patrón que siguen todas sus vistas.
+Documento técnico que describe cómo la API REST consume el mismo motor
+matemático (`core/`) que el CLI, y cómo se conecta con el frontend
+desacoplado.
+
+La web de templates de Django (`calculator/`) que existía antes se retiró:
+la arquitectura final es API REST + frontend React/TS, sin generar HTML en
+el servidor.
 
 ---
 
 ## 1. Resumen general
 
-La web no tiene su propia copia del motor: `calculator/views.py` importa directamente de `core.*` (`core.gauss.GaussMethod`, `core.gauss_jordan.GaussJordanMethod`, `core.vector.Vector`, `core.vector_tools.*`, `core.matrix_tools.*`). El único código propio de la app son las vistas (parseo del `request.POST`, dispatch por `method`, armado de HTML) y los templates.
+La API no tiene su propia copia del motor: cada adaptador en `api/adapters/`
+importa directamente de `core.*` (`core.gauss.GaussMethod`,
+`core.gauss_jordan.GaussJordanMethod`, `core.cramer.CramerMethod`,
+`core.vector.Vector`, `core.vector_tools.*`, `core.matrix_tools.*`,
+`core.numeric.*`). El único código propio de la API son los adaptadores
+(traducen la entrada/salida al contrato JSON que espera el frontend), los
+serializers (validan forma, no matemática) y las vistas (dispatch HTTP).
 
-`BASE_DIR` (en `settings.py`) es `linear_algebra_calculator/`, la raíz de `sys.path` cuando se corre `manage.py`: por eso `core.*` y `utils.*` se importan igual desde la web que desde el CLI, sin rutas relativas ni paquetes duplicados.
+`BASE_DIR` (en `settings.py`) es `linear_algebra_calculator/`, la raíz de
+`sys.path` cuando se corre `manage.py`: por eso `core.*` y `utils.*` se
+importan igual desde la API que desde el CLI, sin rutas relativas ni
+paquetes duplicados.
 
----
-
-## 2. El patrón de cada ruta (dimensiones → datos → resultado)
-
-Todas las rutas de cómputo siguen la misma forma de tres pasos, sin excepción:
-
-1. **Vista de dimensiones** (GET, o POST desde el paso anterior): pide tamaño (filas/columnas, o dimensión `n`) y renderiza el formulario de datos correspondiente.
-2. **Vista de datos** (el mismo template del paso 1 lo posts a sí mismo, o a la vista de dimensiones, según la ruta): entrada de la matriz/vector/es y selector de `method`.
-3. **Vista de resolución** (POST): parsea, valida que ningún campo esté vacío, calcula, y renderiza `result.html` con tres fragmentos de HTML ya armados.
-
-| Familia | Dimensiones | Datos + método | Resolución |
-|---|---|---|---|
-| Sistemas de ecuaciones | `/ecuationInput/` (GET) | `/ecuationInput/` (POST) → `ecuation_input.html` | `/ecuationResolution/` |
-| Vectores | `/vectorInput/` (GET) | `/vectorInput/` (POST) → `vector_form.html` | `/vectorResolution/` |
-| Matrices | `/matrixInput/` (GET) | `/matrixInput/` (POST) → `matrix_form.html` | `/matrixOperationResolution/` |
-
-`/matrixInput/` reutiliza `make_matrix.html` sin modificarlo: ya era un formulario genérico de "filas/columnas".
+El frontend es un proyecto Vite/React separado en `frontend/`, fuera de
+`linear_algebra_calculator/` (que es raíz de `sys.path` de Python). Corre
+en su propio dev server (`localhost:5173`) y habla con la API vía HTTP;
+`src/api/client.ts` usa una `baseURL` absoluta a `localhost:8000`, así que
+hace falta `CORS_ALLOWED_ORIGINS` en `settings.py` (el proxy de
+`vite.config.js` no interviene cuando la baseURL ya es absoluta).
 
 ---
 
-## 3. `utils/html_display.py` — el `frame` como HTML
+## 2. El patrón de cada adaptador (validar forma → llamar a core/ → traducir)
 
-Es el equivalente web de `utils/printMethods.py` (que imprime el mismo `frame` por consola). Cuatro funciones:
+Todos los adaptadores siguen la misma forma, sin excepción:
+
+1. **El serializer** (`api/serializers.py`) valida FORMA de la request:
+   tipos, presencia de campos, dimensiones consistentes entre sí (p. ej.
+   "una matriz no vacía", "A y b del mismo largo"). No valida reglas
+   matemáticas del dominio.
+2. **El adaptador** (`api/adapters/*.py`) llama a `core/` con los datos ya
+   validados en forma, y traduce el resultado (y el `frame` de pasos, si el
+   método lo produce) al contrato JSON que espera el frontend.
+3. **La vista** (`api/views.py`) atrapa `ValueError`/`ZeroDivisionError` que
+   suben desde `core/` y los traduce a `400` con el mensaje del motor, no un
+   mensaje genérico de la capa HTTP.
+
+Esta separación es deliberada: el chequeo matemático (matriz singular,
+intervalo sin cambio de signo, sistema con más incógnitas que ecuaciones)
+vive en `core/` y no se duplica en el serializer. Es la lección de que un
+consumidor que no pase por la API REST (el CLI, por ejemplo) no debe quedar
+sin esa validación.
+
+---
+
+## 3. Endpoints
+
+| Endpoint | Adaptador | `core/` que consume |
+|---|---|---|
+| `POST /api/v1/matrix/operate` | `adapters/matrices.py` | `core/matrix_tools.py` (add, sub, scalar, transpose, matmul, sum_many, sub_many, matmul_chain, inverse) |
+| `POST /api/v1/matrix/reduce` | `adapters/reduce.py` | `core/gauss.py`, `core/gauss_jordan.py`, `core/cramer.py` (`method`: gauss, gauss-jordan, cramer) |
+| `POST /api/v1/matrix/determinant` | `adapters/determinant.py` | `core/cramer.py` (Sarrus y cofactores; `method=cramer` se rechaza acá con 400 explícito -- resuelve sistemas, no calcula un determinante suelto) |
+| `POST /api/v1/matrix/properties` | `adapters/properties.py` | `core/matrix_tools.py` (`rank_of`, `is_singular`, `nullspace_vector`) |
+| `POST /api/v1/vectors/operate` | `adapters/vectores.py` | `core/vector.Vector` (add, sub, escalar, comb2, comb3, dot) |
+| `POST /api/v1/vectors/combination` | `adapters/vectores.py` | `core/vector_tools.linear_combination_verification_steps` |
+| `POST /api/v1/numeric/bisection-method` | `adapters/numerico.py` + `adapters/latex.py` | `core/numeric/metodos_cerrados.py` |
+| `POST /api/v1/numeric/false-position` | `adapters/numerico.py` + `adapters/latex.py` | `core/numeric/metodos_cerrados.py` |
+| `POST /api/v1/numeric/newton-raphson` | `adapters/numerico.py` + `adapters/latex.py` | `core/numeric/metodos_abiertos.py` |
+| `POST /api/v1/numeric/secant` | `adapters/numerico.py` + `adapters/latex.py` | `core/numeric/metodos_abiertos.py` |
+
+Los cuatro métodos numéricos reciben la función en LaTeX
+(`function_latex`); `adapters/latex.py` la traduce a texto plano para
+`core/numeric`, que sigue siendo string-first -- esa dependencia (sympy
+parseando LaTeX, y `antlr4-python3-runtime` que necesita) queda confinada
+al adaptador, y el CLI nunca la carga.
+
+---
+
+## 4. `api/adapters/frame.py` — el `frame` como JSON
+
+Es el equivalente REST de `utils/printMethods.py` (que imprime el mismo
+`frame` por consola para el CLI). Cada método de `core/` que registra pasos
+produce un `frame`: una lista ordenada de `Step` (`{index, text, matrix,
+det, tag, extra}`). `adapters/frame.py` lo traduce a tres formas distintas,
+porque `ResultPretty.tsx` (frontend) tiene tres caminos de render según
+cómo llega `steps`:
 
 ```py
-equation_to_html(matriz, vector) -> str      # "2x₁ + x₂ = 5" por fila, envuelto en .equation-pretty
-summary_to_html(result) -> str               # status/solution/basic_vars/free_vars -> .solution-box
-frame_to_html(frame, show_det=True) -> str   # el frame completo, paso a paso -> .step-log
-matrix_to_html(matrix) -> str                # una matriz como <table class='pretty-matrix'>
+frame_to_steps(frame) -> list[dict]                  # lista plana: gauss, gauss-jordan
+frame_to_step_states_envelope(frame) -> dict          # {frame:{step_states}, text_steps}: inverse
+frame_to_states_envelope(frame) -> dict                # {frame:{states}, text_steps}: sarrus, cofactors, cramer
 ```
 
-`frame_to_html` es completamente genérico: itera el `dict` del `frame` (`{descripción: {"matrix", "det", "tag"}}`) sin saber qué método lo produjo. Por eso `core.matrix_tools.inverse(A, frame=mi_frame)` se puede pasar un `frame` armado a mano en la vista (ver `matrixOperationResolution`) y renderizarlo exactamente igual que el de `GaussJordanMethod`.
-
-`equation_to_html` y `summary_to_html`, en cambio, **asumen la forma de un sistema resuelto** (`status` en `unique`/`infinite`/`inconsistent`, `solution`, `basic_vars`, `free_vars`). Las operaciones que no son sistemas — vectores, determinante, inversa, rango, transpuesta, producto `Ax` — arman su propio HTML de entrada/resultado directamente en la vista (reutilizando `matrix_to_html` y las mismas clases CSS: `.equation-pretty`, `.solution-box`), en vez de forzar esos dos helpers a una forma que no les corresponde.
-
----
-
-## 4. `calculator/views.py` — vistas por ruta
-
-| Vista | Rutas | `method` soportados |
-|---|---|---|
-| `home_page`, `calculatorMain` | `/home/`, `/calculatorMain/` | — (páginas estáticas) |
-| `ecuationInput`, `ecuationResolution` | `/ecuationInput/`, `/ecuationResolution/` | `gauss`, `gauss_jordan`, `combinacion_lineal`, `ax` |
-| `vectorInput`, `vectorResolution` | `/vectorInput/`, `/vectorResolution/` | `suma`, `resta`, `producto_punto` |
-| `matrixInput`, `matrixOperationResolution` | `/matrixInput/`, `/matrixOperationResolution/` | `determinante`, `inversa`, `rango`, `transpuesta` |
-
-**`combinacion_lineal` y `ax` no son rutas propias.** Se agregaron como valores nuevos de `method` sobre `/ecuationResolution/`, que ya existía: `combinacion_lineal` es literalmente `Ax=b` con las columnas de `A` como los vectores (misma llamada que `gauss_jordan`, más la verificación componente a componente); `ax` calcula `Ax` sin resolver nada. Ver `documentation/Vectores.md` secciones 4 y 5 para el detalle matemático de las dos.
-
-**Parseo de números:** todas las vistas usan `parse_fraction`/`format_number` de `utils.EquationFunctions` (no una copia propia de la app): acepta enteros, decimales, y fracciones tipo `"3/4"` o `"7/2"`.
-
-**Manejo de errores:** cada vista de resolución envuelve el cómputo en `try/except ValueError`, re-renderizando el formulario de datos con un mensaje de error y los valores ya ingresados (para no perder lo que el usuario escribió). Es el mismo patrón en las tres familias de rutas.
+`core/` no sabe que existe este módulo -- la regla de corte del proyecto
+(`core/` calcula, no formatea para su consumidor) se mantiene igual que se
+mantiene con `utils/printMethods.py` para el CLI: cada consumidor tiene su
+propio traductor de `frame`.
 
 ---
 
-## 5. Navegación
+## 5. El frontend (`frontend/`)
 
-`calculator_main.html` es el menú de entrada con tres opciones: sistemas de ecuaciones (`/ecuationInput/`), vectores (`/vectorInput/`), matrices (`/matrixInput/`). `result.html` tiene un enlace "Realizar Nueva Cálculo" que usa `back_url` del contexto (con `/ecuationInput/` como valor por defecto, para no romper las rutas que no lo pasan) — cada familia de rutas pasa su propio `back_url` para volver al punto correcto, no siempre al de sistemas de ecuaciones.
+React + TypeScript sobre Vite. `src/api/client.ts` concentra las llamadas a
+cada endpoint (`matrixOperate`, `matrixReduce`, `matrixDeterminant`,
+`matrixProperties`, `vectorOperate`, `vectorCombination`, los cuatro
+métodos numéricos). `AlgebraicMethods.tsx` arma el payload según la
+operación elegida y guarda la respuesta cruda en `localStorage` bajo
+`calc_last_result`; `ResultPretty.tsx` la interpreta y renderiza --
+distintas ramas de render según `input.operation`/`input.method` y la forma
+de `steps` (ver sección 4).
+
+`VITE_API_BASE` (variable de entorno del frontend) apunta a la URL de la
+API; sin configurar, cae a `http://localhost:8000`.
 
 ---
 
-## 6. Qué no persiste en base de datos
+## 6. Validación matemática vs. validación de forma
 
-La app tiene `db.sqlite3` (vacío) porque Django lo requiere para `django.contrib.sessions`/`auth`/etc. en `INSTALLED_APPS`, pero **ninguna vista actual guarda ni lee datos de la base**: cada cómputo es puro, a partir de lo que llega en el `POST` de esa misma request. No hay historial de cálculos entre sesiones.
+**No se duplica la validación matemática entre `core/` y la API.** Ejemplos
+concretos:
+
+- "A y B deben tener la misma dimensión" (matrix/operate, add/sub) es
+  FORMA: se valida en el serializer.
+- "La matriz es singular" (matrix/operate, inverse) es MATEMÁTICA: la
+  descubre `core/matrix_tools.inverse` con un `ValueError`, y la vista lo
+  traduce a 400.
+- "El intervalo no tiene cambio de signo" (los cuatro métodos numéricos) es
+  MATEMÁTICA: la descubre `core/numeric/*`, no un chequeo de Bolzano
+  repetido en el serializer.
 
 ---
 
-## 7. Ejecutar y probar
+## 7. Qué no persiste en base de datos
+
+La app tiene `db.sqlite3` porque Django lo requiere para
+`django.contrib.sessions`/`auth`/etc. en `INSTALLED_APPS`, pero **ninguna
+vista de la API guarda ni lee datos de la base**: cada cómputo es puro, a
+partir de lo que llega en el `POST` de esa misma request. No hay historial
+de cálculos entre sesiones ni entre backend y frontend más allá de lo que
+el frontend cachea en `localStorage` del lado del navegador.
+
+---
+
+## 8. Ejecutar y probar
 
 ```bash
 cd linear_algebra_calculator
 python manage.py runserver
 ```
 
-Los tests de las rutas (`tests/test_web_vectores_matrices.py`, en la raíz del repo) usan `django.test.Client` directo, no `django.test.TestCase`: ninguna vista toca base de datos, así que no hace falta la maquinaria de transacciones/DB de prueba de Django, y los tests corren con el mismo `python -m unittest discover tests` que el resto de la suite — no con `manage.py test`.
+```bash
+cd frontend
+npm install
+npm run dev
+```
+
+Con ambos corriendo, el frontend en `http://localhost:5173` habla con la
+API en `http://localhost:8000/api/v1/`.
+
+Los tests de los endpoints (`tests/test_api_*.py`, en la raíz del repo)
+usan `rest_framework.test.APIClient` directo, no `django.test.TestCase`:
+ninguna vista toca base de datos, así que no hace falta la maquinaria de
+transacciones/DB de prueba de Django, y los tests corren con el mismo
+`python -m unittest discover tests` que el resto de la suite -- no con
+`manage.py test`.

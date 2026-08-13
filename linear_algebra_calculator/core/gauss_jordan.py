@@ -37,8 +37,8 @@ from core.matrix_tools import determinant, is_singular
 def _una_linea(texto: str) -> str:
     """Aplana un texto multilínea para usarlo como paso del frame.
 
-    log_step usa la descripción como clave del dict, y print_frame /
-    frame_to_html la pintan en una sola línea; la forma paramétrica viene en
+    Cada paso del frame es una sola línea de texto (print_frame en el CLI, o
+    los adaptadores de la API, la pintan así); la forma paramétrica viene en
     dos (la expresión y la declaración de parámetros).
     """
     return " · ".join(parte.strip() for parte in texto.splitlines() if parte.strip())

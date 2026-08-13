@@ -129,38 +129,13 @@ class TestSympyNoSeCargaAlArrancar(unittest.TestCase):
 
     def test_importar_cli_startup_no_carga_antlr4_ni_rest_framework(self):
         # cli/startup.py no toca Django (nunca llama django.setup()), así que
-        # a diferencia de calculator.views, acá ni siquiera rest_framework
-        # tendría motivo para cargarse -- es el chequeo más estricto posible.
+        # ni siquiera rest_framework tendría motivo para cargarse -- es el
+        # chequeo más estricto posible.
         cargados = self._modulos_cargados_tras(
             "import cli.startup", "antlr4", "rest_framework"
         )
         self.assertFalse(cargados["antlr4"])
         self.assertFalse(cargados["rest_framework"])
-
-    def test_importar_calculator_views_no_carga_sympy(self):
-        codigo = (
-            "import os, django\n"
-            "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'linear_algebra_calculator.settings')\n"
-            "django.setup()\n"
-            "import calculator.views"
-        )
-        self.assertFalse(self._sympy_cargado_tras(codigo))
-
-    def test_importar_calculator_views_no_carga_antlr4(self):
-        # rest_framework SÍ se carga acá -- django.setup() importa todas las
-        # apps de INSTALLED_APPS, incluida 'rest_framework', sin importar qué
-        # vista se use. Eso no es el problema: antlr4 es la dependencia
-        # pesada que sólo debería tocar api/adapters/latex.py, y calculator/
-        # (la web de templates, ajena a la API) no tiene motivo para cargarla.
-        codigo = (
-            "import os, django\n"
-            "os.environ.setdefault('DJANGO_SETTINGS_MODULE', 'linear_algebra_calculator.settings')\n"
-            "django.setup()\n"
-            "import calculator.views"
-        )
-        cargados = self._modulos_cargados_tras(codigo, "antlr4", "rest_framework")
-        self.assertFalse(cargados["antlr4"])
-        self.assertTrue(cargados["rest_framework"])
 
     def test_importar_los_metodos_tampoco_lo_carga_hasta_usarlos(self):
         # Importar el módulo no debe bastar; recién al resolver aparece sympy.
