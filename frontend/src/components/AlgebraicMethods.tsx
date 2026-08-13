@@ -9,7 +9,7 @@ import { DigitalKeyboard } from './DigitalKeyboard';
 import { OperationSelector } from './OperationSelector';
 import { Tabs, TabsContent, TabsList, TabsTrigger } from './ui/tabs';
 import parseCellInput from '../utils/parseInput';
-import { matrixOperate, matrixDeterminant, matrixReduce, vectorOperate, vectorCombination } from '../api/client';
+import { matrixOperate, matrixDeterminant, matrixReduce, matrixProperties, vectorOperate, vectorCombination } from '../api/client';
 import MatricesSection from './calculous_sections/MatricesSection';
 import SystemEquationSection from './calculous_sections/SystemEquationSection';
 import DeterminantSection from './calculous_sections/DeterminantSection';
@@ -353,6 +353,23 @@ export function AlgebraicMethods({ onBack }: CalculatorProps) {
           return;
         }
 
+        if (operation === 'rank' || operation === 'nullspace') {
+          // matrix/properties, no matrix/operate: no devuelve una matriz.
+          const { A, errors } = parseMatrix(matrixA);
+          if (Object.keys(errors).length) {
+            setMatrixErrorsA(errors);
+            setSubmitError('Hay entradas inválidas en la matriz A.');
+            setLoading(false);
+            return;
+          }
+          const res = await matrixProperties({ A });
+          localStorage.setItem('calc_last_result', JSON.stringify(res));
+          setLastResult(res);
+          window.dispatchEvent(new Event('calc:updated'));
+          setLoading(false);
+          return;
+        }
+
         if (manyOps.includes(operation)) {
           const matricesParsed: number[][][] = [];
           const allErrors: Record<string, string>[] = [];
@@ -586,6 +603,10 @@ export function AlgebraicMethods({ onBack }: CalculatorProps) {
   };
 
   // Matrix operations mapped to backend implementations in algebra/algorithms/matrix/matrix_operations.py
+  // 'rank' y 'nullspace' no van a matrixOperate: pegan a matrix/properties,
+  // un endpoint aparte que no devuelve una matriz (ver el submit handler).
+  // Viven en esta lista igual porque para el usuario son "una operación de
+  // matrices" más, con la misma UI de una sola matriz de entrada.
   const matrixOperations = [
     { id: 'sum_many', label: 'A + B + ..', icon: Plus, description: 'Suma de varias matrices' },
     { id: 'sub_many', label: 'A - B + ..', icon: Minus, description: 'Resta de varias matrices' },
@@ -593,6 +614,8 @@ export function AlgebraicMethods({ onBack }: CalculatorProps) {
     { id: 'scalar_mult', label: 'k · A', icon: Multiply, description: 'Multiplicación escalar' },
     { id: 'transpose', label: 'Aᵀ', icon: RotateCw, description: 'Transponer A', single: true },
     { id: 'inverse', label: 'A⁻¹', icon: Grid3x3Icon, description: 'Matriz inversa', single: true },
+    { id: 'rank', label: 'rango(A)', icon: Grid3x3Icon, description: 'Rango de la matriz', single: true },
+    { id: 'nullspace', label: 'Núcleo (Ax = 0)', icon: CalcIcon, description: 'Vector no trivial del núcleo, si existe', single: true },
   ];
 
   // Vector operations (from algebra/algorithms/vectors)

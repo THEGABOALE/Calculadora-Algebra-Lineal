@@ -135,6 +135,7 @@ export const ResultPretty: React.FC<ResultPrettyProps> = ({ result }) => {
   };
 
   const method = result.input?.method ?? result.method ?? null;
+  const operation = result.input?.operation ?? result.operation ?? null;
 
   const renderDeterminantState = (st: any, idx: number) => {
     const tag = st.tag ?? '';
@@ -299,6 +300,50 @@ export const ResultPretty: React.FC<ResultPrettyProps> = ({ result }) => {
             </ul>
           ) : (
             <div className="text-xs text-purple-100">{mensajeSinSolucionUnica ?? 'Sin solución única.'}</div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
+  // Bloque de matrix/properties: rango, singularidad y núcleo. Render
+  // simple -- rango como número, is_singular como booleano (o "no definido"
+  // si A no es cuadrada, el único otro valor que puede llegar), y el núcleo
+  // reusando renderMatrixObject como columna (Nx1) en vez de inventar un
+  // componente para vectores nuevo.
+  const renderMatrixPropertiesResult = (res: any) => {
+    if (!res || !('rank' in res)) return null;
+    const { rank, is_singular: isSingular, nullspace, nullspace_pretty: nullspacePretty } = res;
+
+    const singularLabel = isSingular === null ? 'No definido (A no es cuadrada)' : isSingular ? 'Sí' : 'No';
+    const nullspaceCol = nullspacePretty
+      ? nullspacePretty.map((v: string) => [v])
+      : nullspace
+      ? nullspace.map((v: number) => [v])
+      : null;
+
+    return (
+      <div className="space-y-3">
+        <div className="p-3 rounded bg-white/3 border border-white/10">
+          <div className="text-sm font-semibold text-blue-200 mb-2">Propiedades de la matriz</div>
+          <div className="grid grid-cols-2 gap-3 text-xs">
+            <div>
+              <div className="text-white/70 text-[11px]">Rango</div>
+              <div className="text-purple-100">{rank}</div>
+            </div>
+            <div>
+              <div className="text-white/70 text-[11px]">¿Es singular?</div>
+              <div className="text-purple-100">{singularLabel}</div>
+            </div>
+          </div>
+        </div>
+
+        <div className="p-3 rounded bg-white/3 border border-white/10">
+          <div className="text-sm font-semibold text-blue-200 mb-2">Núcleo (Ax = 0)</div>
+          {nullspaceCol ? (
+            renderMatrixObject(nullspaceCol)
+          ) : (
+            <div className="text-xs text-purple-100">Sólo la solución trivial (x = 0).</div>
           )}
         </div>
       </div>
@@ -496,6 +541,9 @@ export const ResultPretty: React.FC<ResultPrettyProps> = ({ result }) => {
 
       {/* Cramer: los n+1 determinantes y la solución por variable */}
       {method === 'cramer' && renderCramerResult(result?.result, summary)}
+
+      {/* matrix/properties: rango, singularidad y núcleo */}
+      {operation === 'properties' && renderMatrixPropertiesResult(result?.result)}
 
       {/* Result matrix pretty (for sum/sub/matmul/transpose/scalar etc) */}
       {result?.result?.matrix_pretty && (
