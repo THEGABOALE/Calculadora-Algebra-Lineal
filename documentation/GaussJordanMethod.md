@@ -1,308 +1,136 @@
 # Documentación del Método de Gauss–Jordan (RREF)
 
-> **Repositorio / Archivos:**\
-> `models/GaussJordan.py`\
-> (apoya en) `models/system_solver/GaussSolver.py` y `utils/printMethods.py`
+> **Archivos:**\
+> `core/gauss_jordan.py` (clase `GaussJordanMethod`)\
+> `core/system_solver/gauss_solver.py` (análisis y resolución, compartido con Gauss)\
+> (interfaz CLI) `cli/method_runners.py` (`run_gauss_jordan`)\
+> (interfaz API) `api/adapters/reduce.py`, `POST /api/v1/matrix/reduce` con `method="gauss-jordan"`
 
-Documento técnico y pedagógico que describe la implementación del método de **Gauss–Jordan** incluida en el proyecto. Cubre la API, comportamiento, registro de pasos (`frame`), consideraciones numéricas y ejemplos de uso.
-
----
-
-# 1. Resumen general
-
-El módulo implementa **Gauss–Jordan** para sistemas lineales:
-
-- Trabaja **siempre** sobre la **matriz aumentada** `[A | b]`.
-- Realiza dos fases:
-  1. **Eliminación hacia adelante** (*forward*): triangulación superior (ceros **debajo** del pivote).
-  2. **Normalización + eliminación hacia atrás** (*backward*): lleva a **RREF** (pivotes = 1 y ceros **arriba** y **abajo** de cada pivote).
-
-El diseño separa responsabilidades:
-
-1. `GaussJordanMethod` — operaciones elementales, selección de pivotes, **RREF** y **logging** del proceso en `self.frame`.
-2. `GaussSolver` — análisis del sistema a partir de una aumentada triangular/RREF (rango, pivotes, básicas/libres, inconsistencias) y **cálculo de una solución particular** (fijando variables libres = 0).
-
-Las utilidades de `utils.printMethods` permiten imprimir el proceso y el sistema en forma algebraica (`print_frame`, `print_equation`, `print_summary`).
+Documento técnico que describe la implementación de **Gauss–Jordan**: lleva `[A|b]` a forma reducida por filas (RREF) y, a diferencia de lo que documentaba una versión anterior de este archivo, **sí calcula y reporta el determinante** cuando `A` es cuadrada.
 
 ---
 
-# 2. Archivo: `models/GaussJordan.py` — API y comportamiento
+## 1. Resumen general
 
-## Constructor
+`GaussJordanMethod` trabaja siempre sobre la matriz aumentada `[A|b]` (`b` es obligatorio — a diferencia de `GaussMethod`, que lo acepta `None`) y hace dos fases:
+
+1. **Forward** (`forward_elimination`): triangulación superior, ceros debajo de cada pivote.
+2. **Backward + normalize** (`backward_elimination_and_normalize`): pivotes a 1, ceros arriba y abajo — **RREF** completo.
+
+El análisis del sistema resultante (rango, variables básicas/libres, tipo de solución, solución particular) reutiliza `core/system_solver/gauss_solver.py`, el mismo módulo que usa `GaussMethod` (ver `documentation/GaussMethod.md`, sección 6).
+
+---
+
+## 2. Constructor
 
 ```py
-GaussJordanMethod(matriz: List[List[float]], b: Optional[List[float]])
+GaussJordanMethod(matriz: List[List[float]], b: List[float])
 ```
 
-**Comportamiento**
-
-- Requiere **siempre** el vector `b` (recomendado obtener `A` y `b` con `Matrix.make_equation`).
-- Construye la aumentada `aug = [row + [b_i] for row, b_i in zip(matriz, b)]` y delega tamaños a `Matrix`.
-- Guarda copias `self.A` y `self.b` con los datos originales.
-- Inicializa atributos clave: `self.tolerance`, `self.frame`, `self.pivots`.\
-  *(El determinante no se reporta aquí porque Gauss–Jordan normaliza filas.)*
-
-**Errores**
-
-- Si `b` es `None` o su longitud no coincide con el nº de filas de `A` → `ValueError`.
+- `b` es obligatorio: `ValueError` si es `None`.
+- Valida forma y tipo **antes** de construir la aumentada, con mensajes explícitos: `A` no vacía y lista de listas, todas las filas del mismo largo, todos los valores de `A` y `b` numéricos (`ValueError`/`TypeError`). Esto es deliberado — sin estas validaciones, el `list(map(float, ...))` de más abajo reventaría con un error genérico de `float()` en vez de decir qué está mal.
+- Atributos: `self.A`, `self.b` (copias originales), `self.tolerance = 1e-12`, `self.frame: List[Dict[str, Any]] = []`, `self.pivots: List[Tuple[int,int]] = []`, `self.determinante: Optional[float] = None` (se llena en `run()`), `self.is_homogeneous` (`True` si todos los `b_i ≈ 0`).
 
 ---
 
-## Atributos principales
+## 3. El `frame`
 
-- `self.matriz`: matriz **aumentada** actual `[A|b]`.
-- `self.filas`, `self.columnas`: dimensiones (heredadas de `Matrix`).
-- `self.A`, `self.b`: copias de la entrada original.
-- `self.tolerance: float = 1e-12`: umbral para tratar números “casi cero”.
-- `self.frame: Dict[str, Dict[str, Any]]`: **registro de pasos**.
-- `self.pivots: List[Tuple[int,int]]`: posiciones de pivote `(fila, columna)` detectadas en el forward.
-- `self.determinante: Optional[float] = None`: no se informa en Gauss–Jordan.
+Lista ordenada de pasos (no un diccionario), igual que `GaussMethod` — ver `documentation/GaussMethod.md`, sección 3.
 
 ---
 
-## Firma del `frame` (registro)
+## 4. Métodos públicos
 
-El `frame` es un `dict[str, dict]` con la estructura:
+### `run() -> List[Dict[str, Any]]`
 
-```py
-frame[message_str] = {
-  "matrix": <deepcopy del estado de la matriz>,
-  "det": Optional[float | str],
-  "tag": Optional[str]
-}
-```
+Orquestador. Reinicia `self.frame`, y en orden:
 
-- `message_str`: texto legible describiendo el paso (ej. `"F2 -> F2 - 2*F1"`).
-- `matrix`: estado de la matriz en ese paso (copiado para no mutar el log).
-- `det`: no se usa en Gauss–Jordan; queda `None`.
-- `tag`: etiqueta corta (`swap_rows`, `elim`, `upper`, `rref`, `pivot`, `summary`, ...).
+1. Registra si el sistema es homogéneo o no (`tag="homogeneity_check"`).
+2. Intenta calcular `determinant(self.A)` y `is_singular()` (via `core.matrix_tools`), y los registra — envuelto en `try/except` amplio para no interrumpir el proceso si `A` no es cuadrada o algo falla. **Esto sí se calcula y se reporta**, a diferencia de lo que decía una versión anterior de esta documentación ("no se informa el determinante porque se escalan filas"): el determinante se obtiene con `core.matrix_tools.determinant`, que es un cálculo aparte (Gauss con pivoteo parcial, sin las normalizaciones de RREF), no derivado de la reducción de Gauss-Jordan en curso.
+3. `forward_elimination()`.
+4. `backward_elimination_and_normalize()`.
 
-Las funciones de `utils.printMethods` esperan este formato para presentar los pasos.
+### `forward_elimination() -> List[Tuple[int, int]]`
 
----
-
-## Métodos públicos principales
-
-### `run() -> Dict[str, Dict[str, Any]]`
-
-**Uso**: orquesta **forward + backward** para llevar `[A|b]` a **RREF** con registro de pasos.
-
-**Proceso**:
-
-1. Limpia `self.frame`.
-2. `forward_elimination()` — triangulación superior (ceros abajo de pivotes).
-3. `backward_elimination_and_normalize()` — pivotes a 1 y ceros arriba.
-4. Devuelve el `frame`.
-
----
-
-### `forward_elimination() -> List[Tuple[int,int]]`
-
-**Propósito**: generar ceros **debajo** de los pivotes (forma triangular superior) con **pivoteo parcial por filas**.
-
-**Pasos**:
-
-- Registra el estado inicial con `tag="start"`.
-- Para cada columna `col` de los coeficientes (excluye RHS):
-  - Selecciona `sel = argmax_{r>=row} |A[r,col]|` — pivote parcial por filas.
-  - Si `|A[sel,col]| ≈ 0` → registra `tag="no_pivot"` y continúa.
-  - Si `sel != row` → `_swap_rows(row, sel)` con `tag="swap_rows"`.
-  - Registra pivote con `tag="pivot"`.
-  - Para cada fila `r > row` → `_row_elim(r, row, col)` con `tag="elim"`.
-  - Guarda `(row, col)` en `self.pivots` y `row += 1`.
-- Registra `tag="upper"` al finalizar.
-
----
+Pivoteo parcial por filas (`_select_pivot_row`), elimina hacia abajo (`_row_elim`), registra cada paso. Guarda `self.pivots`.
 
 ### `backward_elimination_and_normalize() -> None`
 
-**Propósito**: llevar a **RREF** (pivotes a 1 y ceros **arriba** de cada pivote).
-
-**Pasos**:
-
-- Si `self.pivots` está vacío, llama a `forward_elimination()`.
-- Recorre pivotes de **abajo hacia arriba**:
-  - Escala la fila del pivote: `_scale_row(r, piv)` (`tag="scale"`).
-  - Elimina por **encima** del pivote: para `rr in [0, r)` → `_row_elim(rr, r, c)` (`tag="elim"`).
-- Registra `tag="rref"` al finalizar.
-
----
+Recorre los pivotes de abajo hacia arriba: normaliza cada uno a 1 (`_scale_row`) y elimina hacia arriba (`_row_elim`). Si `self.pivots` está vacío, corre `forward_elimination()` primero.
 
 ### `analyze() -> Dict[str, Any]`
 
-**Propósito**: invoca `analyze_argumented(self.matriz, tol=self.tolerance)` y devuelve:
-
-- `rank`, `pivots`, `basic_vars`, `free_vars`, `inconsistent_rows`, `status` (`unique` | `infinite` | `inconsistent`).
-
----
+`analyze_argumented(self.matriz, tol=self.tolerance)` — ver `documentation/GaussMethod.md`, sección 6, para las claves exactas.
 
 ### `solve_and_log() -> Dict[str, Any]`
 
-**Propósito**: registrar un **resumen** del tipo de solución y producir una **solución particular** fijando variables libres = 0.
+El método más rico de la clase. Además del resumen y la solución particular (igual que `GaussMethod`), calcula y registra:
 
-**Flujo**:
+- **Dependencia lineal de las filas de A**: `dependent = rank(A) < filas(A)`. Nota de corrección: el criterio anterior era `rank < min(filas, n_vars)`, que fallaba con más filas que columnas — una matriz 3×2 de rango 2 daba "independiente" cuando 3 vectores en R² son necesariamente dependientes.
+- **Forma paramétrica** (sólo si `status == "infinite"`): `print_parametric_solution_from_rref(self.matriz, tol=...)`, que nombra las variables libres `s1, s2, ...` y las básicas `x1, x2, ...` sobre la matriz ya en RREF.
+- **Clasificación combinada homogéneo/no-homogéneo × único/infinitas**, con mensajes distintos para cada combinación (`homogeneous_unique`, `homogeneous_infinite`, `particular_solution`, `nonhom_infinite`) y una conclusión final en lenguaje natural.
 
-1. `info = analyze()` → obtiene `status` y `pivots`.
-2. Registra `tag="summary"` con el tipo de solución.
-3. Si `status == "inconsistent"` → registra `tag="inconsistent"` y retorna `{**info, "solution": None}`.
-4. Si no, usa `solve_from_upper(self.matriz, pivots=pivots, tol=self.tolerance)` para obtener la solución particular `x`.
-5. Registra `tag="solution"` y `tag="vars"` (básicas/libres). Devuelve el `dict` resultante.
+**Shape del retorno:**
 
----
+- Si `status == "inconsistent"`: `{**info, "solution": None}` (donde `info` es lo que devuelve `analyze()`).
+- Si no: `{**result, "parametric_solution", "tipo_sistema", "dependencia", "determinant", "is_singular"}`, donde `result` es lo que devuelve `solve_from_upper(...)`. Es decir, las claves finales son: `m, n, pivots, rank, basic_vars, free_vars, inconsistent_rows, status, solution, parametric_solution, tipo_sistema, dependencia, determinant, is_singular`.
+
+Este shape es **más rico** que el de `GaussMethod.solve_and_log()` (que devuelve el dict crudo de `solve_from_upper`, sin extras) — es la diferencia real entre los dos métodos a nivel de API de Python, más allá del algoritmo.
 
 ### `is_singular() -> Optional[bool]`
 
-**Propósito**: indica si `A` es singular **solo** cuando `A` es cuadrada.
-
-- Calcula `n = self.columnas - 1` (coeficientes) y `m = self.filas`.
-- Si `n != m` → `None` (no aplica a matrices no cuadradas).
-- Si cuadrada → retorna `rank(A) < n` según `analyze()`.
+`None` si `A` no es cuadrada. Si es cuadrada, `rank(A) < n` según `analyze()`.
 
 ---
 
-## Operaciones elementales y auxiliares
+## 5. Operaciones elementales privadas
 
-- `_swap_rows(r1, r2)` — intercambio de filas; registra `tag="swap_rows"`.
-- `_scale_row(r, factor)` — normaliza fila: `F_r := F_r / factor`; registra `tag="scale"`.
-- `_row_elim(target_r, pivot_r, pivot_c)` — eliminación: `F_target := F_target - (A[target,pivot_c]/A[pivot_r,pivot_c]) * F_pivot`; registra `tag="elim"`.
-- `_select_pivot_row(start_row, col)` — pivote parcial por filas: argmax de `|A[r,col]|`.
-- `_zero_small(x)` — limpia valores próximos a cero según `self.tolerance`.
+`_swap_rows`, `_scale_row` (lanza `ValueError` si el factor es ≈ 0), `_row_elim`, `_select_pivot_row` (pivote parcial por filas), `_zero_small` (limpia valores casi-cero).
 
 ---
 
-# 3. Archivo: `models/system_solver/GaussSolver.py` (resumen de uso)
+## 6. Tags del `frame`
 
-Este módulo trabaja **sobre la aumentada** tras el *forward/RREF* y provee utilidades pequeñas y puras:
-
-- `find_pivots_from_upper(U, tol)` — detecta pivotes por fila.
-- `analyze_argumented(U, tol)` — devuelve `rank`, `basic_vars`, `free_vars`, `inconsistent_rows`, `status`.
-- `solve_from_upper(U, pivots=None, tol, col_permutation=None)` — sustitución hacia atrás para una **solución particular** (fija libres = 0). Si hay permutación de columnas, remapea.
-
-> En Gauss–Jordan se reutiliza `solve_from_upper` aunque la matriz ya esté en RREF; funciona igualmente.
+`homogeneity_check`, `det`, `singularity`, `start`, `pivot`, `no_pivot`, `swap_rows`, `elim`, `upper`, `scale`, `rref`, `summary`, `inconsistent`, `solution`, `vars`, `dependency_check`, `homogeneous_unique`, `trivial_solution`, `homogeneous_infinite`, `parametric_solution`, `particular_solution`, `nonhom_infinite`, `conclusion`.
 
 ---
 
-# 4. Tags / Mensajes en `frame` (guía de interpretación)
+## 7. Consideraciones numéricas
 
-`tag` más relevantes:
-
-- `start` — estado inicial de la aumentada.
-- `pivot` — pivote elegido (posición y valor).
-- `no_pivot` — no se encontró pivote significativo en la columna.
-- `swap_rows` — intercambio de filas.
-- `elim` — eliminación de fila `Fj -> Fj ± k*Fi`.
-- `upper` — matriz triangular superior tras el *forward*.
-- `rref` — forma reducida por filas al finalizar el *backward*.
-- `solution` — solución particular (si existe).
-- `vars` — variables básicas / libres.
-- `summary` — resumen del tipo de solución.
-- `inconsistent` — se detectó inconsistencia (fila `0 ... 0 | c≠0`).
-
-Las funciones `print_frame`, `print_equation`, `print_summary` presentan el proceso y los resultados de forma legible.
+- **Tolerancia**: `1e-12` (levemente más laxa que la de `GaussMethod`, `1e-13`).
+- **Pivote parcial por filas**; no se intercambian columnas.
+- **Determinante**: se calcula aparte con `core.matrix_tools.determinant` sobre `self.A` original, no derivado de las operaciones de RREF (que escalan filas y alterarían el determinante por esos factores si se intentara leerlo de la diagonal final).
 
 ---
 
-# 5. Consideraciones numéricas
-
-- **Tolerancia (**``**)**: decide cuándo un valor se considera “≈ 0”. Afecta a la detección de pivotes y a la limpieza visual (`_zero_small`).
-- **Pivote parcial por filas**: más estable que tomar el primer no nulo. No se intercambian columnas en Gauss–Jordan.
-- **Determinante**: no se informa aquí porque **se escalan filas** (normalización de pivotes a 1), lo que altera el determinante por factores. Si necesitas determinantes, usa el método de Gauss clásico.
-
----
-
-# 6. Casos límite y reglas de seguridad
-
-- Si la matriz está vacía (`m == 0`) → por convenio, no hay trabajo que hacer; analiza resultará `unique` con solución vacía.
-- Si se pide `is_singular()` en matrices no cuadradas → retorna `None` (no aplica).
-- Si en `_scale_row` el `factor` es “≈ 0” → se lanza `ValueError` (evita división por cero).
-- `solve_and_log()` devuelve `solution = None` cuando el sistema es `inconsistent`.
-
----
-
-# 7. Ejemplos de uso
-
-## 7.1. Uso programático (sin runner interactivo)
+## 8. Ejemplo de uso programático
 
 ```py
-from models.GaussJordan import GaussJordanMethod
-from utils.printMethods import print_equation, print_frame, print_summary
+from core.gauss_jordan import GaussJordanMethod
+from utils.printMethods import print_frame, print_summary
 
-A = [[1, 1, 1],
-     [2,-1, 1],
-     [1, 2,-1]]
-b = [6, 3, 3]
-
-print(print_equation(A, b))  # forma algebraica
+A = [[1.0, 1.0, 1.0], [2.0, -1.0, 1.0], [1.0, 2.0, -1.0]]
+b = [6.0, 3.0, 3.0]
 
 gj = GaussJordanMethod(A, b)
-gj.run()                     # forward + backward (RREF)
-result = gj.solve_and_log()  # resumen y solución particular
+gj.run()
+result = gj.solve_and_log()
 
 print_frame(gj.frame)
-print(print_equation(A, b))
 print_summary(result)
-```
-
-## 7.2. Runner interactivo `run_gauss_jordan()`
-
-```py
-from models.GaussJordan import run_gauss_jordan
-
-# Solicita filas/columnas, pide A y b, ejecuta Gauss–Jordan, imprime proceso y resumen
-run_gauss_jordan()
+print(result["tipo_sistema"], result["dependencia"], result["determinant"])
 ```
 
 ---
 
-# 8. Flujo de ejecución (paso a paso)
+## 9. Interfaz CLI
 
-1. **Entrada**: se registra `A` y `b` (típicamente con `Matrix.make_equation`).
-2. **Construcción**: se crea `[A | b]` y se instancia `GaussJordanMethod(A, b)`.
-3. **Forward** (`forward_elimination`):
-   - se escogen pivotes por columna con pivoteo parcial por filas,
-   - se hacen `swap_rows` cuando conviene,
-   - se eliminan los valores **debajo** del pivote (`elim`),
-   - se marca `upper`.
-4. **Backward + normalize** (`backward_elimination_and_normalize`):
-   - cada pivote se normaliza a 1 (`scale`),
-   - se anulan los valores **encima** del pivote (`elim`),
-   - se marca `rref`.
-5. **Análisis y solución** (`solve_and_log`):
-   - `analyze_argumented` determina `rank`, `status`, básicas/libres, inconsistencias,
-   - si procede, `solve_from_upper` devuelve una **solución particular** (libres = 0).
-6. **Salida**: se puede imprimir el `frame` completo y el **summary**.
+`cli/method_runners.py::run_gauss_jordan()`. Menú: `[1] Forma Escalonada Reducida (Gauss–Jordan)` en `cli/startup.py`.
+
+También es el motor detrás de la **combinación lineal / ecuación vectorial** (`cli/vector_runners.py::run_vector_combination`, y `POST /api/v1/vectors/combination`): "¿es `b` combinación lineal de `v₁..vₖ`?" es exactamente "¿tiene solución `Ax=b`?" con los vectores como columnas de `A` — ver `documentation/Vectores.md`, sección 4.
 
 ---
 
-# 9. Errores comunes y diagnóstico
+## 10. Interfaz API — `POST /api/v1/matrix/reduce`
 
-- **Resultados absurdos (p. ej. repite la misma variable en básicas)**: revisar que el *forward* generó pivotes correctos (mirar `tag="pivot"`) y que no hubo divisiones por valores casi cero. Ajustar `tolerance` si es necesario.
-- **No aparece **``** o \*\*\*\***``: verificar que los bucles recorren las columnas de coeficientes (`n = columnas-1`), no incluyen la RHS como columna de pivote.
-- **Sistema marcado \*\*\*\***``: confirmar que existe una fila del tipo `0 0 ... 0 | c` con `c ≠ 0` en la aumentada (el análisis así lo detecta).
-
----
-
-# 10. Extensiones futuras
-
-- **Pivoteo completo** (filas + columnas) con seguimiento de una `col_permutation` para remapear la solución final.
-- **Parámetros de tolerancia** configurables por el usuario desde CLI.
-- **Exportar pasos** (`frame`) a JSON/CSV y generar reportes.
-- **Modo silencioso** (sin `frame`) para ejecución rápida.
-
----
-
-## Anexo A — Firma de utilidades usadas
-
-```py
-# utils.printMethods
-log_step(frame, step, matrix_state, det=None, tag=None)
-print_frame(frame, show_det=True, sep="-"*40)
-print_equation(matriz, vector) -> str
-print_summary(result_dict) -> None
-
-# models/system_solver/GaussSolver
-analyze_argumented(U, tol=1e-12) -> Dict[str, Any]
-solve_from_upper(U, pivots=None, tol=1e-12, col_permutation=None) -> Dict[str, Any]
-```
-
-> **Nota**: En Gauss–Jordan no se calcula ni informa el determinante, ya que la normalización de filas lo haría depender de los factores de escala. Para determinantes, usar el método de Gauss clásico.
+`{"method": "gauss-jordan", "A": [...], "b": [...]}`. Mismo `summary` unificado que `gauss` (ver `documentation/GaussMethod.md`, sección 10) — el adaptador no expone directamente el dict rico de `solve_and_log()` descrito en la sección 4: recalcula `summary` desde `analyze_argumented`/`solve_from_upper` sobre la matriz final, para que la respuesta no dependa de cuál de los dos métodos resolvió el sistema.

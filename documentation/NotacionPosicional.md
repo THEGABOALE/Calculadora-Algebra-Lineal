@@ -11,7 +11,7 @@ Documento técnico que describe la descomposición de números en notación posi
 
 Descompone un número en la forma `dígito × base^potencia`, muestra cada término y la suma que reconstruye el número original. Es un módulo autocontenido: sólo depende de `utils.EquationFunctions` para `num_to_sub`/`format_number`, y si por algún motivo esa importación fallara, define sus propias versiones de respaldo (`try/except` al importar) — no tiene ninguna otra dependencia dentro del proyecto.
 
-No tiene equivalente en la interfaz web: es una operación exclusiva del CLI.
+No tiene endpoint en la API ni componente en el frontend: es una operación exclusiva del CLI, y no hay un adaptador `api/adapters/*` que la exponga.
 
 ---
 

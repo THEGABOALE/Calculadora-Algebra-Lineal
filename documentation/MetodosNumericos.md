@@ -4,7 +4,8 @@
 > `core/numeric/_expresiones.py` (parseo de f(x), derivada simbólica)\
 > `core/numeric/metodos_cerrados.py` (Bisección, Regla Falsa)\
 > `core/numeric/metodos_abiertos.py` (Newton-Raphson, Secante)\
-> (interfaz) `cli/numeric_io.py` (entrada/salida por consola), `cli/numerical_methods_runners.py`, `cli/startup.py` opción `[8]`
+> (interfaz CLI) `cli/numeric_io.py` (entrada/salida por consola), `cli/numerical_methods_runners.py`, `cli/startup.py` opción `[8]`\
+> (interfaz API) `api/adapters/numerico.py`, `api/adapters/latex.py`
 
 Documento técnico que describe los cuatro métodos de búsqueda de raíces del proyecto: dos cerrados (requieren un intervalo con cambio de signo) y dos abiertos (requieren punto(s) inicial(es), sin garantía de convergencia).
 
@@ -12,11 +13,9 @@ Documento técnico que describe los cuatro métodos de búsqueda de raíces del 
 
 ## 1. Resumen general
 
-Los cuatro métodos comparten la misma forma de entrada (una función como texto, p. ej. `"x**2 - 4"`) y el mismo núcleo de salida: un diccionario con `raiz`, `iteraciones`, `historial` (una entrada por iteración), `error_final`, `metodo`, `funcion_latex`, `detalles` (explicación LaTeX por iteración), `conclusion`, y opcionalmente `advertencia`.
+Los cuatro métodos comparten la misma forma de entrada (una función como texto, p. ej. `"x**2 - 4"`) y devuelven un diccionario. Claves comunes a los cuatro: `raiz`, `iteraciones`, `historial` (una entrada por iteración, ver secciones 4 y 5 para las claves exactas de cada fila), `error_final`, `metodo`, `funcion_latex`, `detalles` (una entrada `{iteracion, lineas}` por iteración, con el desarrollo en LaTeX), `conclusion` (dict: `raiz`, `iteraciones`, `criterio_paro`, `latex`), y opcionalmente `advertencia` (si se alcanzó `max_iter` sin converger). Los cerrados agregan además `intervalo_final` y `criterio`, y opcionalmente `estimacion_iteraciones` (sección 3); Newton-Raphson agrega `derivada_latex`.
 
-`core/numeric/` es puro cálculo: 0 `input()`, 0 `print()`. Toda la entrada/salida por consola vive en `cli/numeric_io.py` y `cli/numerical_methods_runners.py`.
-
-No hay equivalente en la interfaz web: sigue siendo una operación exclusiva del CLI.
+`core/numeric/` es puro cálculo: 0 `input()`, 0 `print()`. La entrada/salida por consola vive en `cli/numeric_io.py` y `cli/numerical_methods_runners.py`; la entrada/salida HTTP, en `api/adapters/numerico.py` (sección 7).
 
 ---
 
@@ -54,6 +53,8 @@ Los cuatro métodos aceptan `tolerancia` (antes `error_deseado`). Los cerrados, 
 Con `criterio="intervalo"` el resultado incluye además `estimacion_iteraciones`: la cota `n ≥ log₂((b−a)/tolerancia)`, calculada antes de iterar.
 
 Los métodos abiertos (Newton-Raphson, Secante) sólo soportan error relativo — no hay intervalo del que calcular una longitud.
+
+**El default cambia según quién llama.** `core/` por defecto usa `"error_relativo"` (para no alterar el significado de `tolerancia` en llamadas que ya existían antes de que `criterio` existiera). La API (`api/adapters/numerico.py`) fuerza `criterio="intervalo"` **siempre** para bisección y regla falsa, sin exponer el parámetro en el serializer — porque el encabezado de columna que muestra el frontend dice literalmente "xu-xi < E", y mostrar un criterio distinto del que efectivamente se usó sería mentir en la tabla. El CLI, en cambio, deja el default de `core/` (`error_relativo`) salvo que el usuario pida explícitamente el otro. No hay forma de pedirle a la API el criterio de error relativo para los métodos cerrados hoy.
 
 ---
 
@@ -122,7 +123,39 @@ Menú de tres niveles bajo `[8] Métodos Numéricos ▸` en `cli/startup.py`:
 
 ---
 
-## 7. Ejemplo de uso programático
+## 7. Interfaz API
+
+| Endpoint | `core/` que llama | `criterio` |
+|---|---|---|
+| `POST /api/v1/numeric/bisection-method` | `metodo_biseccion` | forzado a `"intervalo"` |
+| `POST /api/v1/numeric/false-position` | `metodo_regla_falsa` | forzado a `"intervalo"` |
+| `POST /api/v1/numeric/newton-raphson` | `metodo_newton_raphson` | — (no aplica) |
+| `POST /api/v1/numeric/secant` | `metodo_secante` | — (no aplica) |
+
+**Entrada en LaTeX, no en texto plano.** El frontend tiene un teclado matemático que produce LaTeX; `api/adapters/latex.py::latex_a_texto` lo traduce a la sintaxis de texto que espera `core/numeric` (`sympy.parsing.latex.parse_latex`, que necesita `antlr4-python3-runtime`). Esa dependencia queda confinada al adaptador — ni `core/` ni el CLI la cargan nunca.
+
+**Los nombres de campo cambian respecto de `core/`**, porque el frontend se portó de otro repo con su propio vocabulario y no vale la pena reescribirlo para que coincida con el español de `core/`. `api/adapters/numerico.py` hace el rename fila por fila:
+
+| `core/` (español) | API (inglés) | Sólo en |
+|---|---|---|
+| `iteracion` | `iteration` | los 4 |
+| `a` / `b` | `xl` / `xu` | cerrados |
+| `f(a)` / `f(b)` | `yl` / `yu` | cerrados |
+| `xr` / `f(xr)` | `xr` / `yr` | cerrados |
+| `x` / `f(x)` / `f'(x)` / `x_nuevo` | `xk` / `fxk` / `fprimexk` / `x_next` | Newton |
+| `x_{n-1}` / `x_n` / `x_{n+1}` | `x_prev` / `x_curr` / `x_next` | secante |
+| `f(x_{n-1})` / `f(x_n)` / `f(x_{n+1})` | `f_prev` / `f_curr` / `f_next` | secante |
+| `error` | `Ea` | los 4 |
+
+Además agrega dos campos derivados que `core/` no calcula: `interval_length` (`xu - xl`, sólo en los cerrados) y `Ea_lt_E` (`error < tolerancia`, booleano, en los 4) — ambos se computan en el adaptador a partir de datos que la fila ya trae, no piden nada nuevo al motor.
+
+**`float('inf')` no es JSON válido.** La primera fila de cualquier historial trae `error = inf` (no hay iteración anterior con la que comparar) — DRF revienta al serializar un `inf` crudo. El adaptador lo sanea a `None` con `_finito()` antes de armar la respuesta; `Ea_lt_E` se calcula *antes* de sanear, sobre el float crudo (`inf < tolerancia` da `False` de forma natural, sin caso especial).
+
+**Gap conocido, marcado explícitamente en el código** (no es un olvido silencioso): el frontend espera, para Newton y secante, una sección `iterations_estimate` con forma propia (`formula_newton`/`formula_secant`, etc.) — pero no hay una cota de iteraciones de forma cerrada para esos métodos como sí la hay para bisección (`log₂`, sección 3). El adaptador la deja sin poblar; el frontend usa acceso opcional (`?.`) en cada campo, así que esa sección queda vacía en vez de romper.
+
+---
+
+## 8. Ejemplo de uso programático
 
 ```py
 from core.numeric.metodos_cerrados import metodo_biseccion, verificar_intervalo

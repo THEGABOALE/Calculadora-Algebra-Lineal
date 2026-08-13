@@ -3,8 +3,8 @@
 > **Archivos:**\
 > `core/vector.py` (clase `Vector`)\
 > `core/vector_tools.py` (lectura, propiedades, combinación lineal, producto Ax)\
-> (interfaz) `cli/vector_runners.py` y las rutas `/vectorInput/`, `/vectorResolution/`,
-> más los métodos `combinacion_lineal` y `ax` de `/ecuationResolution/`
+> (interfaz CLI) `cli/vector_runners.py`\
+> (interfaz API) `api/adapters/vectores.py`, `POST /api/v1/vectors/operate` y `POST /api/v1/vectors/combination`
 
 Documento técnico que describe las operaciones con vectores en Rⁿ del proyecto: la clase `Vector`, la verificación de los 6 axiomas de espacio vectorial, la combinación lineal / ecuación vectorial, y el producto matriz-vector.
 
@@ -12,7 +12,7 @@ Documento técnico que describe las operaciones con vectores en Rⁿ del proyect
 
 ## 1. Resumen general
 
-`core/vector.py` y `core/vector_tools.py` no tienen entrada/salida: reciben datos ya parseados y devuelven resultados o texto para imprimir. Lo interactivo (pedir vectores por consola o por formulario web) vive fuera, en `cli/vector_runners.py` y en `calculator/views.py`.
+`core/vector.py` y `core/vector_tools.py` no tienen entrada/salida: reciben datos ya parseados y devuelven resultados o texto para imprimir. Lo interactivo vive fuera: por consola en `cli/vector_runners.py`, por HTTP en `api/adapters/vectores.py`.
 
 Todas las operaciones que devuelven un vector devuelven una instancia de `Vector`, no una lista suelta; las que devuelven un desarrollo paso a paso devuelven `(resultado, lista_de_strings)`.
 
@@ -105,30 +105,27 @@ Dado un conjunto de coeficientes `x₁..xₖ` y vectores `v₁..vₖ`, calcula `
 
 ## 4. Combinación lineal: cómo se resuelve realmente
 
-**"¿Es b combinación lineal de v₁..vₖ?" es exactamente "¿tiene solución Ax = b?"** con `A = [v₁ v₂ ... vₖ]` (los vectores como columnas). Por eso `run_vector_combination()` en el CLI, y el método `combinacion_lineal` en la web, no reimplementan nada: arman `A` con los vectores como columnas y llaman a `GaussJordanMethod(A, b).run() + .solve_and_log()` — la misma llamada que ya resuelve cualquier sistema.
+**"¿Es b combinación lineal de v₁..vₖ?" es exactamente "¿tiene solución Ax = b?"** con `A = [v₁ v₂ ... vₖ]` (los vectores como columnas). Por eso `run_vector_combination()` en el CLI, y `linear_combination()` en `api/adapters/vectores.py`, no reimplementan nada: arman `A` con los vectores como columnas y llaman a `matrix_reduce(method="gauss-jordan", A, b)` (el mismo adaptador de `matrix/reduce`, ver `documentation/GaussJordanMethod.md`) — la misma llamada que ya resuelve cualquier sistema.
 
 Lo que sí es propio de esta operación:
 
 1. La construcción de `A` a partir de los vectores columna.
-2. La verificación explícita componente a componente con `linear_combination_verification_steps`, usando la solución particular (libres = 0) que devuelve `solve_and_log()`.
+2. La verificación explícita componente a componente con `linear_combination_verification_steps`, usando la solución particular (libres = 0) del `summary` que devuelve `matrix_reduce`.
 3. La conclusión en lenguaje de combinación lineal en vez de "tipo de solución":
-   - `status == "unique"` → "b ES combinación lineal... de forma ÚNICA."
-   - `status == "infinite"` → "b ES combinación lineal... en INFINITAS formas."
-   - `status == "inconsistent"` → "b NO es combinación lineal..."
+   - `status == "unique"` o `"infinite"` → `is_linear_combination: true`, "b es una combinación lineal de las columnas de A".
+   - `status == "inconsistent"` → `is_linear_combination: false`.
 
 ---
 
 ## 5. Producto Ax: qué es y qué no es
 
-`run_matrix_times_vector()` (CLI) y el método `ax` (web) **calculan** `Ax`, no resuelven un sistema. No hay `status`/`solution` al estilo Gauss-Jordan: sólo un vector resultado.
+`run_matrix_times_vector()` (CLI) **calcula** `Ax`, no resuelve un sistema. No hay `status`/`solution` al estilo Gauss-Jordan: sólo un vector resultado. Además hace un paso pedagógico extra: una vez calculado `b := Ax`, resuelve `A·c = b` con Gauss-Jordan como verificación (siempre consistente por construcción, porque `b` se definió como `Ax`).
 
-El CLI además hace un paso pedagógico extra: una vez calculado `b := Ax`, resuelve `A·c = b` con Gauss-Jordan como verificación (siempre consistente por construcción, porque `b` se definió como `Ax`). La web no reproduce ese segundo paso: sólo muestra el cómputo de `Ax`.
-
-**Limitación de la ruta web:** `/ecuationResolution/` con `method=ax` reutiliza el campo `vector` del formulario de sistemas, que siempre tiene longitud `filas(A)`. Para que `Ax` tenga sentido, ese vector necesita longitud `columnas(A)`. Si `A` no es cuadrada, `matrix_vector_product_steps` lanza `ValueError` con un mensaje explícito ("columnas(A) deben coincidir con entradas(x)"), capturado por el mismo manejador de errores de la vista. No hay un formulario propio para `x` de longitud distinta a `b`.
+**No expuesto vía API**: no existe un endpoint para el producto `Ax` — `vectors/operate` tiene 6 operaciones entre vectores (sección 6), y ninguna toma una matriz. Es capacidad conocida y no expuesta, no un descuido: ver `documentation/AppWeb.md`, sección "Capacidad conocida pero no expuesta".
 
 ---
 
-## 6. Interfaz interactiva (CLI)
+## 6. Interfaz CLI
 
 `cli/vector_runners.py` expone 4 runners, todos bajo el submenú `[5] Vectores ▸` de `cli/startup.py`:
 
@@ -141,16 +138,18 @@ El CLI además hace un paso pedagógico extra: una vez calculado `b := Ax`, resu
 
 ---
 
-## 7. Interfaz web
+## 7. Interfaz API
 
-| Ruta | Método HTTP | Qué hace |
+`api/adapters/vectores.py` expone dos endpoints:
+
+| Endpoint | Operaciones | Devuelve |
 |---|---|---|
-| `/vectorInput/` | GET / POST | Pide la dimensión `n` de los vectores `v` y `w`. |
-| `/vectorResolution/` | POST | Recibe `v`, `w`, `method` (`suma`/`resta`/`producto_punto`), calcula y muestra el resultado. |
-| `/ecuationResolution/` con `method=combinacion_lineal` | POST | Sección 4. Reutiliza el formulario de sistemas ya existente. |
-| `/ecuationResolution/` con `method=ax` | POST | Sección 5. Ídem. |
+| `POST /api/v1/vectors/operate` | `add`, `sub`, `escalar`, `comb2`, `comb3`, `dot` (`OPERACIONES` en el adaptador) | `{input, steps, result}`. Cinco de las seis devuelven `result: {vector, vector_pretty}`; `dot` es la excepción y devuelve `result: {scalar, scalar_pretty}` — cambia de shape porque el resultado no es un vector. |
+| `POST /api/v1/vectors/combination` | Combinación lineal (sección 4) | `{input, gauss_jordan: {steps, summary}, check: {Ax, ok, verification_steps}, result: {is_linear_combination, coefficients_particular, columns_statement}}` |
 
-`vectorResolution` construye su propio `frame` con `log_step` (entrada, resultado) y lo renderiza con `frame_to_html`, igual que el resto de las rutas — no usa una librería ni un patrón de presentación distinto.
+`dot` usa las claves `v`/`w` en el payload (`vectors: {v: ..., w: ...}`), no `u`/`v` como las demás operaciones — así arma el request el frontend (`AlgebraicMethods.tsx`), no una inconsistencia del adaptador.
+
+`vector_operate` también arma, para cada operación, un bloque `diagram` (`{vectors: [{label, from, to, emphasis?}]}`) con las coordenadas de cada vector involucrado desde el origen — formato de presentación puro para que el frontend pueda dibujar flechas en 2D/3D. Ningún componente del frontend lo consume hoy (verificado: `diagram` no aparece en ningún `.tsx`); se mantiene disponible porque no cuesta nada, no porque haya una vista que lo pinte.
 
 ---
 

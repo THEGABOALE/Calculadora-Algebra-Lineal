@@ -139,7 +139,38 @@ concretos:
 
 ---
 
-## 7. Qué no persiste en base de datos
+## 7. Capacidad conocida pero no expuesta
+
+Lo que sigue quedó **fuera de alcance a propósito**, con evidencia concreta en el código de que es una decisión, no un olvido silencioso.
+
+### 7.1. Cinco funciones de `frontend/src/api/client.ts` sin endpoint
+
+`errorAcumulado`, `errorAbsRel`, `errorPropagation`, `derivativeMethod` e `integralMethod` llaman a rutas que **no existen** en `api/urls.py`:
+
+| Función | Ruta que llama | ¿Existe en `api/urls.py`? |
+|---|---|---|
+| `errorAcumulado` | `POST api/v1/numeric/error-accumulation` | No |
+| `errorAbsRel` | `POST api/v1/numeric/abs-rel-error` | No |
+| `errorPropagation` | `POST api/v1/numeric/propagation-error` | No |
+| `derivativeMethod` | `POST api/v1/calculus/derivate` | No |
+| `integralMethod` | `POST api/v1/calculus/integral` | No |
+
+Son componentes de frontend que se portaron **tal cual** en la Fase 6 (junto con el resto de `frontend/`), pero cuyo endpoint nunca se construyó porque no hay una función equivalente en `core/`: no hay error acumulado, error absoluto/relativo, propagación de error, derivadas ni integrales simbólicas independientes en el motor matemático de este repo (Newton-Raphson deriva internamente con `sympy.diff`, pero no hay un endpoint que exponga "derivar esta expresión" como operación propia). Conectar estos cinco pediría escribir la función en `core/` primero — no es trabajo de adaptador, es motor nuevo.
+
+Si se llaman hoy, fallan con un 404 de Django (ninguna vista responde en esa ruta), no con un error de la API.
+
+### 7.2. `verify_transpose_props` / `verify_inverse_props`
+
+`core/matrix_tools.py` las tiene y funcionan — las usa `inverse()` internamente (`check_props=True` por defecto) y el CLI las expone en su menú de matrices — pero **devuelven un bloque de texto plano** (`str`, con líneas "OK"/"FALSO"/"No evaluada"), no datos estructurados. No hay endpoint porque no hay un contrato JSON razonable que exponer: el frontend necesitaría parsear ese texto para renderizarlo campo por campo, que es exactamente el patrón que el resto de la API evita (cada adaptador arma la estructura que el frontend consume directo, nunca un bloque de texto para parsear del otro lado). Exponerlas de verdad exige antes reescribirlas en `core/` para que devuelvan una lista de `{propiedad, cumple, detalle}` en vez de un string — trabajo de motor, no de adaptador.
+
+### 7.3. Otros dos, más chicos, con la misma raíz
+
+- **Producto `Ax`** (`core.vector_tools.matrix_vector_product_steps`): el CLI lo expone (`run_matrix_times_vector`, ver `documentation/Vectores.md` sección 5); `vectors/operate` no tiene una operación para "matriz por vector" — sus 6 operaciones son todas entre vectores.
+- **`iterations_estimate` para Newton-Raphson y Secante**: el frontend espera esa sección con forma propia (`formula_newton`/`formula_secant`, etc.) en la respuesta de esos dos endpoints, pero `core/numeric/metodos_abiertos.py` no calcula ninguna cota de iteraciones de forma cerrada para métodos abiertos (sí existe para bisección, `log₂((b-a)/E)` — ver `documentation/MetodosNumericos.md`, sección 3). Marcado explícitamente como "GAP CONOCIDO" en el docstring de `api/adapters/numerico.py`: el adaptador deja esa sección sin poblar y el frontend usa acceso opcional (`?.`) en cada campo, así que queda vacía en vez de romper.
+
+---
+
+## 8. Qué no persiste en base de datos
 
 La app tiene `db.sqlite3` porque Django lo requiere para
 `django.contrib.sessions`/`auth`/etc. en `INSTALLED_APPS`, pero **ninguna
@@ -150,7 +181,7 @@ el frontend cachea en `localStorage` del lado del navegador.
 
 ---
 
-## 8. Ejecutar y probar
+## 9. Ejecutar y probar
 
 ```bash
 cd linear_algebra_calculator
