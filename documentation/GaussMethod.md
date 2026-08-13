@@ -1,264 +1,137 @@
 # Documentación del Método de Gauss
 
-> **Repositorio / Archivos:** `models/GaussMethod.py`, `models/system_solver/GaussSolver.py`
+> **Archivos:**\
+> `core/gauss.py` (clase `GaussMethod`)\
+> `core/system_solver/gauss_solver.py` (análisis y resolución desde una matriz triangular)\
+> (interfaz CLI) `cli/method_runners.py` (`run_gauss`)\
+> (interfaz API) `api/adapters/reduce.py`, `POST /api/v1/matrix/reduce` con `method="gauss"`
 
-Documento técnico y pedagógico que describe la implementación del método de eliminación gaussiana incluida en el proyecto. Cubre la API, comportamiento, registro de pasos (`frame`), consideraciones numéricas y ejemplos de uso.
-
----
-
-# 1. Resumen general
-
-El módulo implementa la eliminación gaussiana para:
-
-- matrices normales `A` (cálculo de determinante cuando `A` es cuadrada),
-- y matrices aumentadas `[A|b]` para resolver sistemas `Ax = b`.
-
-Separa responsabilidades en dos capas:
-
-1. `GaussMethod` — eliminación, operaciones elementales y logging (registro de pasos).
-2. `GaussSolver` — análisis y resolución desde una matriz aumentada triangular (sustitución hacia atrás, clasificación de variables, estado del sistema).
-
-El `frame` (registro) permite imprimir paso a paso el procedimiento con funciones helper (`utils.printMethods`).
+Documento técnico que describe la eliminación gaussiana (forward elimination + sustitución hacia atrás) del proyecto.
 
 ---
 
-# 2. Archivo: `models/GaussMethod.py` — API y comportamiento
+## 1. Resumen general
 
-## Constructor
+`GaussMethod` triangulariza `[A|b]` (o `A` sola, si no se pasa `b`) con pivoteo parcial por filas, registra cada paso en un `frame`, y calcula el determinante cuando la matriz es cuadrada. La resolución del sistema (rango, variables básicas/libres, solución particular) es responsabilidad de un módulo separado y reutilizable: `core/system_solver/gauss_solver.py`.
+
+**Contrato de dos pasos**, el mismo que `GaussJordanMethod`:
+
+```py
+g = GaussMethod(A, b)
+g.gauss_method()        # triangulariza y deja self.matriz en forma escalonada
+r = g.solve_and_log()   # sólo analiza y resume lo ya eliminado
+```
+
+**Pivoteo parcial por filas únicamente — no se intercambian columnas.** Hacerlo permutaría las variables, y no hay forma de deshacer esa permutación al presentar la solución (a diferencia de `solve_from_upper`, que sí acepta un `col_permutation` si algún día hiciera falta esa permutación).
+
+---
+
+## 2. Constructor
 
 ```py
 GaussMethod(matriz: List[List[float]], b: Optional[List[float]])
 ```
 
-**Comportamiento**
-
-- Si `b` != `None` construye la matriz aumentada `aug = [row + [b_i] for row,b_i in zip(matriz,b)]` y marca `self.is_augmented = True`.
-- Guarda copias `self.A` y `self.b` con los datos originales.
-- Inicializa atributos clave: `self.determinante`, `self.tolerance`, `self.frame`, `self.pivots`, `self.analize`.
-
-**Errores**
-
-- Si `b` tiene distinto número de filas que `matriz` lanza `ValueError`.
+- Si `b is not None`: valida `len(b) == len(matriz)` (`ValueError` si no), construye la aumentada `aug = [row + [b_i] for ...]`, marca `self.is_augmented = True`.
+- Si `b is None`: envuelve `matriz` sola, `self.is_augmented = False` (sólo tiene sentido para calcular un determinante, no para resolver un sistema).
+- Atributos: `self.A`, `self.b` (copias de la entrada original), `self.determinante = 1.0` (acumulador de signo por swaps), `self.tolerance = 1e-13`, `self.frame: List[Dict[str, Any]] = []`, `self.pivots: List[Tuple[int,int]] = []`.
 
 ---
 
-## Atributos principales
+## 3. El `frame`
 
-- `self.matriz`: matriz actual (aumentada si aplica).
-- `self.filas`, `self.columnas`: dimensiones (heredadas de `Matrix`).
-- `self.is_augmented`: bool, si la instancia contiene `[A|b]`.
-- `self.A`, `self.b`: copias de la entrada original.
-- `self.determinante`: acumulador de cambios de signo por swaps (usado al calcular determinante cuando es cuadrada).
-- `self.tolerance`: umbral para comparar con 0 (`isclose`).
-- `self.frame`: registro de pasos (dict).
-- `self.pivots`: lista de `(fila, columna)` pivotes encontrados.
+`self.frame` es una **lista** ordenada de pasos (no un diccionario indexado por texto), producida por `utils.printMethods.log_step`. Cada paso es un `dict` con claves `index, text, matrix, det, tag, extra`.
 
 ---
 
-## Firma del `frame` (registro)
+## 4. Métodos públicos
 
-El `frame` es un `dict[str, dict]` con la estructura:
+### `gauss_method() -> List[Dict[str, Any]]`
 
-```py
-frame[message_str] = {
-  "matrix": <deepcopy de la matriz estado>,
-  "det": Optional[float | str],
-  "tag": Optional[str]
-}
-```
+Triangulariza `self.matriz` (debe ser la aumentada; lanza `RuntimeError` si `is_augmented` es `False`). Antes de operar, si la matriz es cuadrada, llama a `null_determinant()`: si detecta una condición que implica determinante 0 (fila/columna toda-cero, filas/columnas repetidas), registra el motivo y **corta ahí**, sin seguir eliminando. Si no, recorre columnas, elige pivote por máximo valor absoluto en la columna (`sel = max(range(row, m), key=lambda r: abs(aug[r][col]))`), intercambia filas si hace falta, elimina hacia abajo, y al final — si la matriz es cuadrada — llama a `determinant_result()`.
 
-- `message_str`: texto legible describiendo el paso (ej. `"F2 -> F2 - 2*F1"`).
-- `matrix`: estado de la matriz en ese paso (copiado).
-- `det`: valor del determinante o `None`.
-- `tag`: etiqueta corta para clasificar (ej. `swap_rows`, `elim`, `upper`, `det`, `pivot`, `summary`).
+### `fordward_elimination_aug() -> Tuple[Matrix, List[Tuple[int,int]]]`
 
-Las funciones de `utils.printMethods` esperan este formato para presentar los pasos.
+Variante de la misma eliminación hacia adelante (nombre con el typo histórico "fordward"), usada por `solve_and_log()` cuando se quiere sólo triangular sin el chequeo de `null_determinant()`. Devuelve `(matriz_triangular, pivots)`.
 
----
+### `solve_and_log() -> Dict[str, Any]`
 
-## Métodos públicos principales
+Asume que la triangulación ya corrió. Llama a `solve_from_upper(self.matriz, pivots=self.pivots)` (de `gauss_solver.py`) y **devuelve exactamente ese resultado**, sin agregarle nada — a diferencia de `GaussJordanMethod.solve_and_log()`, que enriquece el dict con `parametric_solution`, `tipo_sistema`, `dependencia`, `determinant`, `is_singular` (ver `documentation/GaussJordanMethod.md`). `GaussMethod` no calcula ninguno de esos extras: sólo registra un resumen del tipo de solución y las variables básicas/libres en el `frame`, y retorna el dict crudo de `solve_from_upper`.
 
-### `gauss_method() -> dict`
-
-**Uso**: triangulariza `self.matriz` (no aumentada normalmente) y calcula el determinante si la matriz es cuadrada.
-
-**Proceso**:
-1. Reinicia `frame` y `determinante`.
-2. Si cuadrada, comprueba `null_determinant()` (heurísticas conservadoras). Si `True` retorna `frame`.
-3. Para `col` en `0..min(filas,columnas)-1`: llama a `pivote(col)` y `triangular_reduction(col)`.
-4. Si cuadrada, llama a `determinant_result()`.
-5. Retorna `frame`.
-
-**Observaciones**: diseñado para mostrar cada paso del proceso en `frame`.
-
----
-
-### `fordward_elimination_aug() -> Tuple[U, pivots]`
-
-**Propósito**: realizar la eliminación hacia delante sobre **matriz aumentada** `self.matriz` y devolver la matriz triangular superior `U` y la lista de pivotes.
-
-**Pasos**:
-- Verifica `is_augmented`.
-- Registra el estado inicial: `log_step(..., tag="start")`.
-- Recorre columnas `col=0..n-1` (n = nº variables).
-  - Selecciona `sel = argmax_{r>=row} |aug[r][col]|` (pivote parcial por filas).
-  - Si `|aug[sel][col]| ≈ 0` registra `no_pivot` y continúa.
-  - Si `sel != row` hace `swipe_rows(row, sel)` (y `log_step` interno).
-  - Añade `(row, col)` a `pivots` y registra el pivote.
-  - Realiza eliminación hacia abajo: para cada `r > row` calcula `factor` y actualiza columnas `c=col..n` (incluye RHS), registrando cada eliminación con `tag="elim"`.
-  - Incrementa `row`.
-- Actualiza `self.matriz`, `self.filas`, `self.columnas` y `self.pivots`.
-- Registra `tag="upper"` con la matriz `U`.
-- Retorna `(U, pivots)`.
-
-**Notas**: esta función no intercambia columnas; es la versión usada para resolver sistemas con pivoteo parcial por filas.
-
----
-
-### `solve_and_log() -> Dict`
-
-**Propósito**: orquesta la eliminación y la resolución completa para una matriz aumentada.
-
-**Flujo**:
-1. Llama `fordward_elimination_aug()`.
-2. Llama `solve_from_upper(self.matriz, pivots=self.pivots)` (módulo `GaussSolver`).
-3. Extrae `status`, `solution`, `basic_vars`, `free_vars`.
-4. Registra en `frame` un `summary` con `status`; si `inconsistent` registra `inconsistent`; si hay `solution` registra `solution` (particular con variables libres = 0) y `vars` (básicas/libres).
-5. Retorna `result` (diccionario devuelto por `solve_from_upper`).
-
-**Salida esperada**: `result` con claves `{status, solution, pivots, basic_vars, free_vars, rank, inconsistent_rows}`.
-
----
+**Shape exacto del retorno** (claves de `solve_from_upper`, ver sección 6): `m, n, pivots, rank, basic_vars, free_vars, inconsistent_rows, status, solution`.
 
 ### `null_determinant() -> bool`
 
-**Propósito**: heurísticas para detectar singularidad en matrices cuadradas antes de hacer trabajo.
-
-**Chequeos**:
-- fila toda-cero => singular (registra `singular`).
-- columna toda-cero => singular.
-- filas repetidas => singular.
-- columnas repetidas => singular.
-
-**Retorno**: `True` si detecta condición que implica `determinante = 0`, `False` en otro caso.
-
-**Nota**: es una prueba rápida, no exhaustiva, y está pensada para evitar trabajo innecesario cuando la matriz es manifiestamente singular.
-
----
+Heurística rápida y conservadora para matrices cuadradas: detecta fila toda-cero, columna toda-cero, dos filas iguales, o dos columnas iguales. Si encuentra alguna, registra el motivo en el `frame` (`tag="singular"`) y devuelve `True`. No es exhaustiva — una matriz puede ser singular sin caer en ninguno de estos cuatro casos, y en ese caso la triangulación sigue normalmente (el pivote ≈ 0 se detecta más adelante, columna por columna).
 
 ### `determinant_result()`
 
-**Propósito**: cuando la matriz es cuadrada, calcula el determinante a partir del producto diagonal tras triangularización.
+Sólo si la matriz es cuadrada: multiplica la diagonal de la matriz ya triangularizada, ajusta por `self.determinante` (el signo acumulado por los intercambios de fila), y registra el resultado (`tag="det"`).
 
-**Cálculo**:
-- `diag_product = prod(self.matriz[i][i] for i in 0..limit-1)` donde `limit = min(filas,columnas)`.
-- `final_dect = self.determinante * diag_product` (ajusta swaps realizados).
-- Registra un mensaje detallado con cada factor formateado usando `format_number` y `tag="det"`.
+### `swipe_rows(fila_a, fila_b)`
 
----
-
-### Operaciones elementales y auxiliares
-
-- `swipe_rows(fila_a, fila_b)` — intercambia filas, ajusta `self.determinante` si cuadrada, registra con `tag="swap_rows"`.
-- `swipe_col(col_a, col_b)` — intercambia columnas, ajusta determinante si cuadrada, registra `tag="swap_cols"`.
-- `triangular_reduction(col)` — asume pivote en `(col,col)`; para `fila = col+1..` aplica eliminación y registra cada paso con `tag="elim"`. Si `pivote ≈ 0` registra `no_pivot_for_reduction`.
-- `pivote(col)` — localiza el mejor candidato de pivote en la columna `col` (prefiere valores cercanos a 1) y, si lo encuentra en otra fila/columna, intercambia filas o columnas usando `swipe_*`.
+Intercambia dos filas, invierte el signo de `self.determinante` si la matriz es cuadrada, y registra el paso (`tag="swap_rows"`).
 
 ---
 
-# 3. Archivo: `models/system_solver/GaussSolver.py`
+## 5. Tags del `frame`
 
-Módulo de apoyo que trabaja **solo** con la matriz aumentada **ya triangularizada** (o al menos con la eliminación hacia delante completada). Está dividido en funciones pequeñas y reutilizables.
-
-## `find_pivots_from_upper(U, tol) -> List[(r,c)]`
-- Busca en cada fila la primera columna `c` tal que `|U[r][c]| > tol`.
-- Devuelve lista de pivotes `(r,c)`.
-
-## `analyze_argumented(U, tol) -> Dict`
-- Devuelve un diccionario con: `m`, `n`, `pivots`, `rank`, `basic_vars`, `free_vars`, `inconsistent_rows`, `status`.
-- Detecta filas inconsistentes: coeficientes ≈ 0 y RHS ≠ 0.
-- Determina `status`:
-  - `inconsistent` si hay filas inconsistentes,
-  - `unique` si `rank == n` (todas las columnas con pivote),
-  - `infinite` en otro caso.
-
-## `solve_from_upper(U, pivots=None, tol=...) -> Dict`
-- Si `pivots` es `None` llama a `analyze_argumented`.
-- Si `status == 'inconsistent'` retorna sin solución (`solution: None`).
-- Si `status != 'inconsistent'` construye una **solución particular** fijando variables libres = 0 y usando sustitución hacia atrás:
-  - Recorre pivotes en orden inverso y calcula `x[c] = (rhs - sum_{j>c} U[r][j]*x[j]) / U[r][c]`.
-  - Si `pivot ≈ 0` asigna `0` (prevención division por cero).
-- Si se suministra `col_permutation` remapea la solución al orden de variables original.
-- Retorna `info` extendido con `'solution': x`.
-
-## `solve_system_direct(A,b)`
-- Helper: construye `aug`, aplica eliminación con pivote parcial (filas), analiza y llama a `solve_from_upper`.
-- Útil para pruebas rápidas cuando no se desea separar pasos.
+`start`, `pivot`, `no_pivot`, `swap_rows`, `elim`, `upper`, `det`, `singular`, `summary`, `inconsistent`, `solution`, `vars` — mismo vocabulario que `GaussJordanMethod` para los pasos compartidos (ver esa documentación para el detalle de cada uno).
 
 ---
 
-# 4. Tags / Mensajes en `frame` (guía de interpretación)
+## 6. `core/system_solver/gauss_solver.py`
 
-Los `tag` más relevantes y su significado:
-
-- `start` — estado inicial de la aumentada.
-- `pivot` — pivote elegido (posición y valor).
-- `pivot_use` — pivote usado en `triangular_reduction`.
-- `no_pivot`, `no_pivot_for_reduction` — no se encontró pivote significativo.
-- `swap_rows`, `swap_cols` — intercambios realizados.
-- `elim` — eliminación de fila (Fj -> Fj - factor*Fi).
-- `upper` — la matriz `U` (triangular superior) tras forward elimination.
-- `det` — detalle del cálculo del determinante final.
-- `solution` — solución particular registrada.
-- `vars` — variables básicas / libres en formato legible.
-- `summary` — resumen final con el tipo de solución.
-- `inconsistent` — sistema inconsistente detectado.
-- `sarrus` — (opcional, si se implementa) matriz extendida Sarrus para 3x3.
-
----
-
-# 5. Comportamiento numérico y consideraciones
-
-- **Tolerancia**: `self.tolerance` (o `tol` en `GaussSolver`) decide cuándo un valor se considera 0 — fundamental para detectar pivotes y filas nulas.
-- **Pivote parcial**: la implementación usa pivot parcial por filas (selección del mayor valor absoluto en la columna) para mayor estabilidad numérica que usar el primer valor no nulo.
-- **Intercambio de columnas**: existe `swipe_col` y `pivote` puede cambiar columnas si encuentra una entrada más cercana a 1 en otra columna; si se hacen permutaciones de columnas hay que mantener y propagar un `col_permutation` para remapear la solución final (ya contemplado en `solve_from_upper`).
-- **Determinante**: calculado por producto diagonal * `self.determinante` (ajusta swaps). Válido si la eliminación se ha hecho sólo con operaciones elementales registradas.
-- **Inestabilidad / mal condicionadas**: sistemas con matrices casi singulares pueden producir errores numéricos. Para robustez extra considera escala de filas o pivotaje completo.
-
----
-
-# 6. Casos límite y reglas de seguridad
-
-- Matriz vacía (`m == 0`) → los helpers devuelven `status='unique'` y solución `[]` por convenio.
-- `fordward_elimination_aug` lanza `RuntimeError` si la instancia no es aumentada.
-- `null_determinant()` es conservadora: evita cálculos costosos si la matriz es manifiestamente singular (filas/columnas nulas o repetidas).
-- Cuando `solve_from_upper` encuentra pivote ≈ 0 en sustitución, asigna 0 al coeficiente para evitar división por cero.
-
----
-
-# 7. Ejemplos de uso (rápido)
-
-### Resolver un sistema Ax=b y ver pasos:
+Trabaja **sólo** sobre una matriz aumentada ya triangularizada (o al menos con la eliminación hacia adelante completada), y lo reutilizan tanto `GaussMethod` como `GaussJordanMethod`.
 
 ```py
-from models.GaussMethod import GaussMethod
-from utils.printMethods import run_and_print, print_summary
+find_pivots_from_upper(U, tol) -> List[Tuple[int,int]]
+analyze_argumented(U, tol=1e-12) -> Dict[str, Any]
+    # claves: m, n, pivots, rank, basic_vars, free_vars, inconsistent_rows, status
+    # status ∈ {'unique', 'infinite', 'inconsistent'}
+solve_from_upper(U, pivots=None, tol=1e-12, col_permutation=None) -> Dict[str, Any]
+    # {**analyze_argumented(...), 'solution': x | None}
+    # 'solution' es None si status == 'inconsistent'; si no, una solución
+    # particular (variables libres = 0) por sustitución hacia atrás.
+```
 
-A = [[2,1,-1],[1,-1,2],[3,2,1]]
-b = [0,9,7]
+`status` se determina así: `'inconsistent'` si hay alguna fila `0 ... 0 | c` con `c ≠ 0`; `'unique'` si `rank == n` (todas las columnas de coeficientes tienen pivote); `'infinite'` en cualquier otro caso.
 
-gauss = GaussMethod(A, b)
-result = gauss.solve_and_log()
-run_and_print(frame=gauss.frame)   # imprime todos los pasos
+---
+
+## 7. Consideraciones numéricas
+
+- **Tolerancia**: `self.tolerance` (`1e-13` en `GaussMethod`, más estricta que la de `GaussJordanMethod` — ver esa documentación) decide cuándo un valor se trata como 0.
+- **Pivote parcial por filas**: más estable numéricamente que tomar el primer valor no nulo de la columna. No hay pivoteo por columnas — ver la nota del constructor.
+- **Determinante**: sólo tiene sentido si la matriz es cuadrada y `is_augmented=True` no interfiere (el determinante se calcula sobre la parte `A`, ajustado por los swaps registrados en la eliminación).
+
+---
+
+## 8. Ejemplo de uso programático
+
+```py
+from core.gauss import GaussMethod
+from utils.printMethods import print_frame, print_summary
+
+A = [[2.0, 1.0, -1.0], [1.0, -1.0, 2.0], [3.0, 2.0, 1.0]]
+b = [0.0, 9.0, 7.0]
+
+g = GaussMethod(A, b)
+g.gauss_method()
+result = g.solve_and_log()
+
+print_frame(g.frame)
 print_summary(result)
 ```
 
-### Obtener solo U y pivots (sin resolver automáticamente):
+---
 
-```py
-gauss = GaussMethod(A, b)
-U, pivots = gauss.fordward_elimination_aug()
-# inspeccionar U y luego usar solve_from_upper(U, pivots)
-```
+## 9. Interfaz CLI
+
+`cli/method_runners.py::run_gauss()` pide `A`/`b` (`cli.inputsmatrix`), ejecuta el contrato de dos pasos, e imprime el `frame` y el resumen. Menú: `[2] Forma Escalonada (Gauss)` en `cli/startup.py`.
 
 ---
+
+## 10. Interfaz API — `POST /api/v1/matrix/reduce`
+
+`{"method": "gauss", "A": [...], "b": [...]}` (o `"Ab"` con la matriz aumentada directa). El adaptador (`api/adapters/reduce.py`) **no** usa el `solve_and_log()` crudo de `GaussMethod` para el `summary` de la respuesta: calcula un `summary` unificado llamando directamente a `analyze_argumented` + `solve_from_upper` sobre la matriz final, para que la respuesta tenga el mismo shape sin importar si se resolvió con `gauss` o `gauss-jordan` (que internamente devuelven dicts distintos). `steps` es la lista plana (`frame_to_steps`), a diferencia de Cramer (ver `documentation/CramerMethod.md`, sección 8).

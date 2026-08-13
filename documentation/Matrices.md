@@ -2,8 +2,8 @@
 
 > **Archivos:**\
 > `core/matrix_tools.py`\
-> (interfaz) `cli/matrix_runners.py`, `utils/matrix_memory.py`, y las rutas
-> `/matrixInput/`, `/matrixOperationResolution/`
+> (interfaz CLI) `cli/matrix_runners.py`, `utils/matrix_memory.py`\
+> (interfaz API) `api/adapters/matrices.py`, `api/adapters/properties.py`
 
 Documento técnico que describe las operaciones con matrices que no son sistemas de ecuaciones: aritmética matricial, determinante, inversa, rango/núcleo, traspuesta, y las verificaciones de propiedades algebraicas.
 
@@ -101,16 +101,19 @@ Devuelven un bloque de texto con cada propiedad marcada `OK`, `FALSO`, o `No eva
 
 ---
 
-## 9. Interfaz web
+## 9. Interfaz API
 
-| Ruta | Método HTTP | Operaciones |
+Dos endpoints, con las 8 operaciones aritméticas y las 3 propiedades separadas — porque no comparten shape de respuesta (una devuelve una matriz, la otra no):
+
+| Endpoint | Adaptador | Cubre |
 |---|---|---|
-| `/matrixInput/` | GET / POST | Pide filas y columnas de A (reutiliza `make_matrix.html`, el mismo formulario genérico de Gauss/Gauss-Jordan). |
-| `/matrixOperationResolution/` | POST | `determinante`, `inversa`, `rango` (+ vector del núcleo si es singular), `transpuesta`. |
+| `POST /api/v1/matrix/operate` | `api/adapters/matrices.py` | `add`, `sub`, `scalar`, `transpose`, `matmul`, `sum_many`, `sub_many`, `matmul_chain`, `inverse` — las 9 operaciones de las secciones 3, 4 y 6 (`inverse` incluida). Cada una arma `{input, steps, result: {matrix, matrix_pretty}}`; `inverse` usa el `frame` real (sección 6) traducido al envelope `step_states`. |
+| `POST /api/v1/matrix/determinant` | (ver `documentation/CramerMethod.md`, sección 8) | `method=sarrus`/`cofactors` sobre `core/cramer.py`, no sobre `determinant()` de este archivo — `matrix_tools.determinant()` se usa internamente en otros adaptadores (`matrix/reduce`, `matrix/properties`) pero no tiene endpoint propio. |
+| `POST /api/v1/matrix/properties` | `api/adapters/properties.py` | `rank_of`, `is_singular`, `nullspace_vector` (sección 5). Documentado aparte en `documentation/MatrixProperties.md`. |
 
-`determinante` e `inversa` exigen `A` cuadrada (`ValueError` explícito si no, capturado por el mismo manejador de errores que ya usa el resto de las vistas). `rango` y `transpuesta` aceptan cualquier forma.
+A diferencia de la vieja web de templates de este proyecto (retirada), **sí** se exponen las operaciones que necesitan dos matrices — suma, resta, multiplicación, y las versiones en cadena — todas vía `matrix/operate`.
 
-No se expusieron en la web las operaciones que necesitan **dos** matrices (suma, resta, multiplicación): el formulario de una sola matriz (`matrix_form.html`) no tiene un segundo bloque de entrada, y añadirlo sin duplicar el patrón habría exigido decidir cómo pedir la segunda matriz (misma forma para suma/resta, forma compatible para producto). Queda fuera de esta fase de documentación/exposición web, no del motor: `add_matrices`/`sub_matrices`/`matmul` ya están disponibles y probados, sólo falta conectarlos a una ruta.
+**No expuesto**: `verify_transpose_props`/`verify_inverse_props` (sección 7) no tienen endpoint. Devuelven un bloque de texto plano formateado para consola, no datos estructurados — conectarlos a un endpoint JSON exigiría antes reescribirlos para que devuelvan algo que el frontend pueda renderizar campo por campo, no un `<pre>` con el texto del CLI adentro. Ver `documentation/AppWeb.md`, sección "Capacidad conocida pero no expuesta".
 
 ---
 
