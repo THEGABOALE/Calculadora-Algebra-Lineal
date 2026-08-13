@@ -1,9 +1,13 @@
 from django.urls import path
 
 from api.views import (
+    BisectionView,
+    FalsePositionView,
     MatrixDeterminantView,
     MatrixOperateView,
     MatrixReduceView,
+    NewtonRaphsonView,
+    SecantView,
     VectorCombinationView,
     VectorOperateView,
 )
@@ -16,4 +20,8 @@ urlpatterns = [
     path("matrix/determinant", MatrixDeterminantView.as_view(), name="matrix-determinant"),
     path("vectors/operate", VectorOperateView.as_view(), name="vectors-operate"),
     path("vectors/combination", VectorCombinationView.as_view(), name="vectors-combination"),
+    path("numeric/bisection-method", BisectionView.as_view(), name="bisection-method"),
+    path("numeric/false-position", FalsePositionView.as_view(), name="false-position"),
+    path("numeric/newton-raphson", NewtonRaphsonView.as_view(), name="newton-raphson"),
+    path("numeric/secant", SecantView.as_view(), name="secant"),
 ]

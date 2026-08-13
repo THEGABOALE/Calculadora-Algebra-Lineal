@@ -252,3 +252,61 @@ class VectorCombinationSerializer(serializers.Serializer):
                 f"Dimensiones inconsistentes: A es {len(A)}x{len(A[0])} y b tiene longitud {len(b)}."
             )
         return data
+
+
+# ---------------------------------------------------------------------------
+# Métodos numéricos de búsqueda de raíces.
+#
+# Validan sólo forma: que function_latex/xi/xu/tolerance/x0/x1 estén
+# presentes y tengan el tipo correcto. Lo matemático -- xi < xu, tolerancia
+# positiva, Bolzano (f(xi)·f(xu) < 0), derivada nula, denominador nulo --
+# vive en core/numeric/ y llega hasta la vista como ValueError o
+# ZeroDivisionError. No se duplica ninguna de esas reglas acá: es la misma
+# lección del comentario de arriba del módulo, aplicada a este dominio.
+#
+# max_iter vs. max_iterations: no es un error de tipeo -- así arma cada
+# request AlgebraicMethods.tsx/BisectionInputs.tsx et al. Bisección es la
+# única que manda 'max_iter'; regla falsa, Newton y secante mandan
+# 'max_iterations'. Confirmado leyendo el código de cada componente, no
+# asumido por analogía.
+# ---------------------------------------------------------------------------
+
+class BisectionSerializer(serializers.Serializer):
+    function_latex = serializers.CharField(allow_blank=False)
+    xi = serializers.FloatField()
+    xu = serializers.FloatField()
+    tolerance = serializers.FloatField()
+    max_iter = serializers.IntegerField(required=False, min_value=1)
+
+
+class FalsePositionSerializer(serializers.Serializer):
+    function_latex = serializers.CharField(allow_blank=False)
+    xi = serializers.FloatField()
+    xu = serializers.FloatField()
+    tolerance = serializers.FloatField()
+    max_iterations = serializers.IntegerField(required=False, min_value=1)
+
+
+class NewtonRaphsonSerializer(serializers.Serializer):
+    function_latex = serializers.CharField(allow_blank=False)
+    x0 = serializers.FloatField()
+    tolerance = serializers.FloatField()
+    max_iterations = serializers.IntegerField(required=False, min_value=1)
+    # Aceptado por compatibilidad con el payload que arma el frontend; no se
+    # usa. core/numeric siempre deriva simbólicamente, que es el único modo
+    # que ofrece el selector del componente (una sola opción: "symbolic").
+    derivate_mode = serializers.CharField(required=False)
+
+
+class SecantSerializer(serializers.Serializer):
+    function_latex = serializers.CharField(allow_blank=False)
+    x0 = serializers.FloatField()
+    x1 = serializers.FloatField()
+    tolerance = serializers.FloatField()
+    max_iterations = serializers.IntegerField(required=False, min_value=1)
+    # Aceptado por compatibilidad; no se usa. core/numeric no tiene un modo
+    # grados/radianes -- las funciones trigonométricas siempre asumen
+    # radianes. Aceptar 'deg' del selector sin convertir nada sería fingir
+    # soporte que no existe, así que no se valida ni se actúa sobre él: si
+    # se necesita de verdad, es una fase aparte en core/, no un parche acá.
+    angle_mode = serializers.CharField(required=False)
