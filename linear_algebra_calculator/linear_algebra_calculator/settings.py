@@ -39,7 +39,6 @@ INSTALLED_APPS = [
     'django.contrib.staticfiles',
     'corsheaders',
     'rest_framework',
-    'calculator',
     'api',
 ]
 
@@ -130,11 +129,11 @@ USE_TZ = True
 # Static files (CSS, JavaScript, Images)
 # https://docs.djangoproject.com/en/5.2/howto/static-files/
 STATIC_URL = '/static/'
-# El estático vive en calculator/static/ y lo encuentra AppDirectoriesFinder,
-# porque 'calculator' está en INSTALLED_APPS. La entrada que había aquí
-# apuntaba a BASE_DIR/linear_algebra_calculator/calculator/static, con un
-# nivel de más (BASE_DIR ya es linear_algebra_calculator/), así que nunca
-# existió: era redundante y disparaba staticfiles.W004 en cada check.
+# 'calculator' (la app que servía este estático vía AppDirectoriesFinder) se
+# retiró: el frontend es un build de Vite aparte, servido por su propio
+# dev server / hosting estático, no por Django. No hay ningún directorio de
+# estáticos propio hoy; STATIC_URL queda porque django.contrib.admin y
+# django.contrib.staticfiles lo siguen necesitando.
 
 # Default primary key field type
 # https://docs.djangoproject.com/en/5.2/ref/settings/#default-auto-field

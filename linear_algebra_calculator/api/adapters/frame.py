@@ -18,9 +18,9 @@ Verificado contra un frame real de 15 pasos (core/matrix_tools.inverse sobre
 una 3x3), no sólo contra un caso trivial de un paso.
 
 core/ no sabe que existe este módulo -- la regla de corte del proyecto
-(core/ calcula, no formatea para HTTP) se mantiene igual que se mantuvo con
-utils/printMethods.py y utils/html_display.py para el CLI y la web de
-templates.
+(core/ calcula, no formatea para su consumidor) se mantiene igual que se
+mantiene con utils/printMethods.py para el CLI: cada consumidor tiene su
+propio traductor de `frame`, core/ no conoce a ninguno.
 """
 
 from __future__ import annotations
