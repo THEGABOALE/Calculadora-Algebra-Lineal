@@ -449,7 +449,10 @@ export function AlgebraicMethods({ onBack }: CalculatorProps) {
           setLoading(false);
           return;
         }
-        const res = await matrixReduce({ method: operation === 'gauss_jordan' ? 'gauss-jordan' : 'gauss', A, b });
+        // El id del botón no siempre es el `method` del endpoint: 'gauss_jordan'
+        // viaja como 'gauss-jordan'. 'cramer' y 'gauss' coinciden tal cual.
+        const reduceMethod = operation === 'gauss_jordan' ? 'gauss-jordan' : (operation || 'gauss');
+        const res = await matrixReduce({ method: reduceMethod, A, b });
         localStorage.setItem('calc_last_result', JSON.stringify(res));
         setLastResult(res);
         window.dispatchEvent(new Event('calc:updated'));
@@ -604,16 +607,20 @@ export function AlgebraicMethods({ onBack }: CalculatorProps) {
   ];
 
   // Reduction methods (sistema de ecuaciones)
+  // Cramer vive acá y no entre los determinantes: resuelve un sistema, así
+  // que necesita A y b -- que es exactamente lo que inputMode === 'reduce'
+  // ya pide. Como método de determinante nunca tuvo sentido (y en el repo
+  // del que se portó esto era un alias que devolvía cofactores).
   const reduceOperations = [
     { id: 'gauss', label: 'Eliminación Gauss', icon: Grid3x3Icon, description: 'Eliminación gaussiana (forward/backward)', single: false },
     { id: 'gauss_jordan', label: 'Gauss-Jordan', icon: RotateCw, description: 'Eliminación Gauss-Jordan (forma reducida)', single: false },
+    { id: 'cramer', label: 'Cramer', icon: CalcIcon, description: 'Resolución por regla de Cramer (sólo sistemas cuadrados)', single: false },
   ];
 
-  // Determinant calculation methods (match docs: Gauss, Gauss-Jordan, Cramer)
+  // Determinant calculation methods
   const determinantMethods = [
     { id: 'sarrus', label: 'Sarrus-Method', icon: Grid3x3Icon, description: 'Cálculo de determinante por método de Sarrus', single: true },
     { id: 'cofactors', label: 'Cofactors-Method', icon: RotateCw, description: 'Cálculo del determinante por expansión de Cofactores', single: true },
-    { id: 'cramer', label: 'Cramer', icon: CalcIcon, description: 'Cálculo por regla de Cramer (sólo para sistemas cuadrados)', single: true },
   ];
 
   const generalOperations = [
