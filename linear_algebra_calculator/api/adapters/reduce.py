@@ -1,5 +1,6 @@
 """
-matrix/reduce: Gauss y Gauss-Jordan sobre core/gauss.py y core/gauss_jordan.py.
+matrix/reduce: Gauss, Gauss-Jordan y Cramer sobre core/gauss.py,
+core/gauss_jordan.py y core/cramer.py.
 
 `GaussMethod.solve_and_log()` y `GaussJordanMethod.solve_and_log()` no
 devuelven el mismo shape entre sí -- GaussJordan agrega parametric_solution,
@@ -13,21 +14,36 @@ respuesta sin importar cuál se haya usado para resolver.
 Se llama a solve_and_log() igual, por su efecto de lado: agrega al frame los
 pasos de resumen (tipo de solución, variables básicas/libres) que el usuario
 espera ver en el procedimiento.
+
+Cramer entra por acá y no por matrix/determinant: resuelve un sistema (pide A
+y b), no calcula un determinante suelto. En matrix/determinant sigue
+rechazado con 400 explícito -- ver el docstring de adapters/determinant.py.
+Su respuesta difiere de la de gauss/gauss-jordan en dos puntos, ambos
+deliberados y cubiertos por tests:
+
+- `steps` es el envelope {frame:{states}}, no la lista plana. ResultPretty.tsx
+  elige la rama de render por `input.method`, y para sarrus/cofactors/cramer
+  lee `steps.frame.states` con estados autocontenidos.
+- el `summary` no trae `rank`/`ranks`: la regla de Cramer no calcula rangos.
+  Inventarlos exigiría correr Gauss por detrás y devolver, bajo el rótulo de
+  Cramer, un número que Cramer nunca produjo.
 """
 
 from __future__ import annotations
 
 from typing import Any, Dict, List, Optional
 
+from core.cramer import CramerMethod
 from core.gauss import GaussMethod
 from core.gauss_jordan import GaussJordanMethod
 from core.system_solver.gauss_solver import analyze_argumented, solve_from_upper
+from utils.EquationFunctions import format_number, num_to_sub
 
-from .frame import frame_to_steps
+from .frame import frame_to_states_envelope, frame_to_steps
 
 Matrix = List[List[float]]
 
-METODOS = ("gauss", "gauss-jordan")
+METODOS = ("gauss", "gauss-jordan", "cramer")
 
 
 def _summary(final_matrix: Matrix, pivots) -> Dict[str, Any]:
@@ -52,7 +68,105 @@ def _summary(final_matrix: Matrix, pivots) -> Dict[str, Any]:
     }
 
 
+def _cramer_determinants(solver: CramerMethod, det_a: float) -> List[Dict[str, Any]]:
+    """Los n+1 determinantes de la regla: det(A) y un det(Aᵢ) por variable.
+
+    `CramerMethod.solve()` calcula los n determinantes de Cramer pero no los
+    devuelve -- los escribe en el frame ya formateados como texto
+    (`det=format_number(detC)`), que sirve para mostrar el paso pero no para
+    operar. Recuperar el número parseando esa cadena de vuelta sería frágil,
+    así que se recalculan acá con `calculate_determinant(..., show_sarrus=
+    False)`: misma aritmética que usó solve() y, con show_sarrus en False, sin
+    un solo log_step -- no toca el frame que ya se armó.
+
+    Es el dato que la Fase 7 tiene que hacer llegar hasta el navegador: el
+    frontend heredado mostraba UN determinante para Cramer, que es
+    exactamente lo que Cramer no es.
+    """
+    determinants: List[Dict[str, Any]] = [
+        {
+            "variable": None,
+            "label": "det(A)",
+            "value": det_a,
+            "value_pretty": format_number(det_a),
+            "matrix": [row[:] for row in solver.matrix_A],
+        }
+    ]
+
+    for col in range(solver.n_variables):
+        C = solver.create_cramer_matrix(col)
+        det_c = solver.calculate_determinant(C, show_sarrus=False)
+        determinants.append(
+            {
+                "variable": col,
+                "label": f"det(A{num_to_sub(col + 1)})",
+                "value": det_c,
+                "value_pretty": format_number(det_c),
+                "matrix": C,
+            }
+        )
+
+    return determinants
+
+
+def _cramer_summary(resultado: Dict[str, Any]) -> Dict[str, Any]:
+    status = resultado["status"]
+    unica = status == "unique"
+
+    # Dos normalizaciones sobre lo que devuelve CramerMethod.solve(), las dos
+    # para no publicar como dato algo que el motor no afirmó:
+    #
+    # 1. En la rama de infinitas soluciones solve() devuelve
+    #    `'solution': 'Crammer'` -- un literal con el nombre del método (y con
+    #    una eme de más), no una solución. Sin solución única, `solution` es
+    #    null.
+    # 2. En las dos ramas singulares solve() devuelve
+    #    `basic_vars=[0..n-1], free_vars=[]`, que para un sistema con infinitas
+    #    soluciones es falso: hay variables libres. La regla de Cramer no las
+    #    identifica -- eso es trabajo de Gauss, y para eso están los otros dos
+    #    `method` de este mismo endpoint. Se devuelven vacías: "Cramer no
+    #    clasificó variables", que es la verdad, en vez de "todas básicas".
+    solution = resultado["solution"] if unica else None
+    basic_vars = resultado["basic_vars"] if unica else []
+    free_vars = resultado["free_vars"] if unica else []
+    det_a = resultado["determinant"]
+
+    return {
+        "status": status,
+        "solution_type": status,
+        "solution": solution,
+        "basic_vars": basic_vars,
+        "free_vars": free_vars,
+        "variables": {"basic": basic_vars, "free": free_vars},
+        "determinant": det_a,
+        "determinant_pretty": format_number(det_a),
+        "is_singular": not unica,
+    }
+
+
+def _matrix_cramer(A: Matrix, b: List[float]) -> Dict[str, Any]:
+    # CramerMethod.__init__ levanta ValueError si b no acompaña a A o si la
+    # matriz no es cuadrada; la vista lo traduce a 400 con el mensaje del
+    # motor. No se duplica ninguno de esos dos chequeos en el serializer.
+    solver = CramerMethod([row[:] for row in A], list(b))
+    resultado = solver.solve()
+
+    return {
+        "input": {"method": "cramer", "A": A, "b": b},
+        "steps": frame_to_states_envelope(solver.frame),
+        "result": {
+            "determinant": resultado["determinant"],
+            "determinant_pretty": format_number(resultado["determinant"]),
+            "determinants": _cramer_determinants(solver, resultado["determinant"]),
+        },
+        "summary": _cramer_summary(resultado),
+    }
+
+
 def matrix_reduce(*, method: str, A: Matrix, b: List[float]) -> Dict[str, Any]:
+    if method == "cramer":
+        return _matrix_cramer(A, b)
+
     if method == "gauss":
         solver = GaussMethod([row[:] for row in A], list(b))
         solver.gauss_method()

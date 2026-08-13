@@ -57,7 +57,12 @@ class MatrixOperateView(APIView):
 
 
 class MatrixReduceView(APIView):
-    """POST /api/v1/matrix/reduce -- Gauss y Gauss-Jordan sobre core/gauss*.py."""
+    """POST /api/v1/matrix/reduce -- Gauss, Gauss-Jordan y Cramer.
+
+    Los tres resuelven Ax=b: core/gauss.py, core/gauss_jordan.py y
+    core/cramer.py. El ValueError que atrapa el except incluye el de
+    CramerMethod.__init__ cuando A no es cuadrada.
+    """
 
     def post(self, request):
         serializer = MatrixReduceSerializer(data=request.data)

@@ -111,7 +111,13 @@ class MatrixOperateSerializer(serializers.Serializer):
 
 
 class MatrixReduceSerializer(serializers.Serializer):
-    method = serializers.ChoiceField(choices=["gauss", "gauss-jordan"])
+    # 'cramer' entra acá y no en matrix/determinant: resuelve sistemas, así
+    # que necesita A y b igual que gauss y gauss-jordan. Que la matriz sea
+    # cuadrada -- lo único que Cramer exige de más -- NO se valida acá: lo
+    # exige CramerMethod.__init__ con un ValueError, y la vista lo traduce a
+    # 400. Duplicarlo sería dejar la regla en dos lugares que pueden
+    # divergir, que es justo lo que este módulo evita por diseño.
+    method = serializers.ChoiceField(choices=["gauss", "gauss-jordan", "cramer"])
     A = serializers.ListField(
         child=serializers.ListField(child=serializers.FloatField()), required=False
     )
@@ -174,7 +180,8 @@ class MatrixDeterminantSerializer(serializers.Serializer):
             # silencio a cofactores.
             raise serializers.ValidationError(
                 "method='cramer' resuelve sistemas de ecuaciones, no calcula "
-                "determinantes. Usá matrix/reduce con method='cramer' (Fase 7)."
+                "determinantes. Usá matrix/reduce con method='cramer', que "
+                "toma A y b."
             )
 
         A = data["A"]
