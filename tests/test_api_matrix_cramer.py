@@ -85,9 +85,9 @@ class TestCramerParidadConElMotor(unittest.TestCase):
             for va, vd in zip(summary['solution'], directo['solution']):
                 self.assertAlmostEqual(va, vd, places=9)
         else:
-            # core devuelve 'solution': 'Crammer' (un literal, no una
-            # solución) en la rama de infinitas. El adaptador no propaga esa
-            # cadena: sin solución única, `solution` es null.
+            # Sin solución única, `solution` es null tanto en 'inconsistent'
+            # como en 'infinite' (esta última devolvía el literal 'Crammer'
+            # en vez de None; se corrigió en core/cramer.py).
             self.assertIsNone(summary['solution'])
 
         # Mismo criterio que el resto de la API: los pasos que salen son

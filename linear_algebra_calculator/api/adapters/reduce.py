@@ -110,34 +110,25 @@ def _cramer_determinants(solver: CramerMethod, det_a: float) -> List[Dict[str, A
 
 
 def _cramer_summary(resultado: Dict[str, Any]) -> Dict[str, Any]:
+    # Ya no normaliza nada: CramerMethod.solve() devuelve 'solution',
+    # 'basic_vars' y 'free_vars' correctos de origen en las tres ramas --
+    # None/[]/[] sin solución única, la lista/list(range(n))/[] con única.
+    # (Antes esto forzaba esos tres campos con un ternario porque el motor
+    # devolvía basic_vars=[0..n-1] en las ramas singulares y el literal
+    # 'Crammer' como 'solution' en la de infinitas; los dos se corrigieron en
+    # core/cramer.py.) Este adaptador sólo arma el shape que espera el
+    # contrato web: 'variables' anidado, 'determinant_pretty' y 'is_singular'.
     status = resultado["status"]
     unica = status == "unique"
-
-    # Dos normalizaciones sobre lo que devuelve CramerMethod.solve(), las dos
-    # para no publicar como dato algo que el motor no afirmó:
-    #
-    # 1. En la rama de infinitas soluciones solve() devuelve
-    #    `'solution': 'Crammer'` -- un literal con el nombre del método (y con
-    #    una eme de más), no una solución. Sin solución única, `solution` es
-    #    null.
-    # 2. En las dos ramas singulares solve() devuelve
-    #    `basic_vars=[0..n-1], free_vars=[]`, que para un sistema con infinitas
-    #    soluciones es falso: hay variables libres. La regla de Cramer no las
-    #    identifica -- eso es trabajo de Gauss, y para eso están los otros dos
-    #    `method` de este mismo endpoint. Se devuelven vacías: "Cramer no
-    #    clasificó variables", que es la verdad, en vez de "todas básicas".
-    solution = resultado["solution"] if unica else None
-    basic_vars = resultado["basic_vars"] if unica else []
-    free_vars = resultado["free_vars"] if unica else []
     det_a = resultado["determinant"]
 
     return {
         "status": status,
         "solution_type": status,
-        "solution": solution,
-        "basic_vars": basic_vars,
-        "free_vars": free_vars,
-        "variables": {"basic": basic_vars, "free": free_vars},
+        "solution": resultado["solution"],
+        "basic_vars": resultado["basic_vars"],
+        "free_vars": resultado["free_vars"],
+        "variables": {"basic": resultado["basic_vars"], "free": resultado["free_vars"]},
         "determinant": det_a,
         "determinant_pretty": format_number(det_a),
         "is_singular": not unica,

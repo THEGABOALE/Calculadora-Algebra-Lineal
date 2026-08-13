@@ -149,9 +149,7 @@ def print_summary(result: Optional[Any]):
     print(f"Variables libres: {vars_to_str(free)}")
 
     sol = result.get('solution')
-    if sol == 'Crammer':
-        print("Solucion particular: No determinado por Crammer")
-    elif sol is not None and sol != 'Crammer':
+    if sol is not None:
         # vector compacto formateado
         sol_formatted = [format_number(v) for v in sol]
         print(f"Solución particular: [{', '.join(sol_formatted)}]")
@@ -164,7 +162,15 @@ def print_summary(result: Optional[Any]):
 
         if status == 'infinite':
             print("\nNota: la solución mostrada es una solución particular (variables libres = 0).")
-    
+
+    elif status == 'infinite':
+        # Gauss con infinitas soluciones siempre trae una particular (libres
+        # = 0), así que esta rama sólo la pisa Cramer: la regla no calcula
+        # variables libres, por eso 'solution' llega None también acá y no
+        # sólo en 'inconsistent'. Se distingue por status, no por un literal
+        # en 'solution' (antes era 'Crammer', ver core/cramer.py).
+        print("Solución particular: None (infinitas soluciones -- la regla de Cramer no calcula variables libres; usá Gauss-Jordan para la forma paramétrica)")
+
     else:
         print("Solución particular: None (sistema inconsistente)")
     # Mostrar determinante / singularidad si están en el resultado

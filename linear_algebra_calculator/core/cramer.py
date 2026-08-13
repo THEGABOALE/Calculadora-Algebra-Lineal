@@ -275,7 +275,12 @@ class CramerMethod(Matrix):
 
         result = {
             'status': 'infinite',
-            'solution': 'Crammer',
+            # Antes era el literal 'Crammer' (con una eme de mas): no una
+            # solucion, el nombre del metodo. Sin solucion unica no hay
+            # particular que mostrar -- None, igual que la rama
+            # 'inconsistent' de arriba. Quien necesite distinguir "infinitas"
+            # de "inconsistente" ya tiene 'status' para eso.
+            'solution': None,
             # Mismo motivo que en la rama 'inconsistent': con infinitas
             # soluciones SI hay variables libres -- justo lo contrario de
             # "todas basicas". Cramer no las identifica (eso lo hace Gauss),
