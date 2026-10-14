@@ -60,6 +60,51 @@ def _es_cero(valor: float, cota: float, tau: float, tol: Optional[float]) -> boo
         return abs(valor) <= tol
     return abs(valor) <= tau * cota
 
+
+class CotasDeRedondeo:
+    """El criterio de cero de este módulo, para métodos que hacen su propia
+    eliminación paso a paso (Gauss, Gauss-Jordan).
+
+    No ejecuta ninguna operación sobre la matriz: el método hace y registra
+    las suyas (cada uno con su procedimiento) y le avisa a esta clase cada
+    operación elemental, para que lleve la cota S en paralelo:
+
+        cotas = CotasDeRedondeo(M)
+        ... M[r], M[p] = M[p], M[r];     cotas.intercambiar(r, p)
+        ... M[r] = M[r] / f;             cotas.escalar(r, f)
+        ... M[r] = M[r] - f·M[p];        cotas.restar(r, p, f)
+        ... if cotas.es_cero(M[i][j], i, j): M[i][j] = 0.0
+
+    Así "es cero" se decide igual que en rank_of / determinant / inverse /
+    system_ranks, y la eliminación deja el ruido en 0.0 EXACTO: el análisis
+    posterior (analyze_argumented, solve_from_upper) sólo lee ceros exactos.
+    """
+
+    def __init__(self, M: Matrix, tol: Optional[float] = None) -> None:
+        self.S: Matrix = [[abs(float(x)) for x in fila] for fila in M]
+        m = len(M)
+        n = len(M[0]) if M else 0
+        self.tau = _tau(m, n)
+        self.tol = tol
+
+    def es_cero(self, valor: float, i: int, j: int) -> bool:
+        return _es_cero(valor, self.S[i][j], self.tau, self.tol)
+
+    def intercambiar(self, i: int, k: int) -> None:
+        self.S[i], self.S[k] = self.S[k], self.S[i]
+
+    def escalar(self, i: int, factor: float, desde: int = 0) -> None:
+        """Fila i dividida por `factor`."""
+        a = abs(factor)
+        for j in range(desde, len(self.S[i])):
+            self.S[i][j] = self.S[i][j] / a
+
+    def restar(self, destino: int, origen: int, factor: float, desde: int = 0) -> None:
+        """Fila destino menos `factor` veces la fila origen."""
+        a = abs(factor)
+        for j in range(desde, len(self.S[destino])):
+            self.S[destino][j] = self.S[destino][j] + a * self.S[origen][j]
+
 # --------------------------
 # Validaciones y formas
 # --------------------------
