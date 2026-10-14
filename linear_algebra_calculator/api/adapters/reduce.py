@@ -25,8 +25,11 @@ deliberados y cubiertos por tests:
   elige la rama de render por `input.method`, y para sarrus/cofactors/cramer
   lee `steps.frame.states` con estados autocontenidos.
 - el `summary` no trae `rank`/`ranks`: la regla de Cramer no calcula rangos.
-  Inventarlos exigiría correr Gauss por detrás y devolver, bajo el rótulo de
-  Cramer, un número que Cramer nunca produjo.
+  Inventarlos exigiría devolver, bajo el rótulo de Cramer, un número que
+  Cramer nunca produjo. La única excepción es interna a core/cramer.py: con
+  det(A) = 0 y todos los det(Aᵢ) = 0 la regla no decide y el motor clasifica
+  por rangos (Rouché–Frobenius); esos rangos quedan en el paso `rank_check`
+  del procedimiento, no en el `summary`, así el shape es el mismo siempre.
 """
 
 from __future__ import annotations
