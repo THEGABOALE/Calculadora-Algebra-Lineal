@@ -251,11 +251,17 @@ export const ResultPretty: React.FC<ResultPrettyProps> = ({ result }) => {
     const solucion = sm?.solution ?? null;
     const status = sm?.status ?? null;
 
+    // Con det(A) = 0, algún det(Aᵢ) ≠ 0 prueba que el sistema es
+    // inconsistente, pero que todos sean 0 NO prueba que tenga infinitas
+    // soluciones (A = 0, b ≠ 0 es el contraejemplo). Ese caso lo clasifica
+    // core/cramer.py comparando rango(A) con rango([A|b]) y lo deja en el
+    // procedimiento (tag rank_check). Los textos de acá son ciertos en los
+    // dos caminos: no atribuyen la conclusión a los det(Aᵢ).
     const mensajeSinSolucionUnica =
       status === 'inconsistent'
-        ? 'det(A) = 0 y algún det(Aᵢ) ≠ 0: el sistema es inconsistente, no tiene solución.'
+        ? 'det(A) = 0 y el sistema es inconsistente: no tiene solución. Si algún det(Aᵢ) ≠ 0 eso solo lo prueba; si todos son 0, la regla de Cramer no decide y se concluyó comparando rangos (rango(A) < rango([A|b])) — ver el procedimiento.'
         : status === 'infinite'
-        ? 'det(A) = 0 y todos los det(Aᵢ) = 0: el sistema tiene infinitas soluciones. La regla de Cramer no puede describirlas — usá Gauss-Jordan para la forma paramétrica.'
+        ? 'det(A) = 0 y rango(A) = rango([A|b]) < n: el sistema tiene infinitas soluciones. Que todos los det(Aᵢ) sean 0 no alcanza para afirmarlo; lo decide el análisis de rangos del procedimiento. La regla de Cramer no puede describirlas — usá Gauss-Jordan para la forma paramétrica.'
         : null;
 
     return (
