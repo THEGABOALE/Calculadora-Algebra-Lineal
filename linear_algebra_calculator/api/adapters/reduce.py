@@ -50,8 +50,13 @@ METODOS = ("gauss", "gauss-jordan", "cramer")
 
 
 def _summary(final_matrix: Matrix, pivots) -> Dict[str, Any]:
-    info = analyze_argumented(final_matrix)
-    solved = solve_from_upper(final_matrix, pivots=pivots)
+    # tol=None: cero EXACTO. La eliminación de GaussMethod / GaussJordanMethod
+    # ya decidió qué es ruido de redondeo (criterio de core/matrix_tools.py) y
+    # lo dejó en 0.0; volver a mirar la matriz final con un umbral propio
+    # (antes, 1e-12 absoluto) podía contradecir al motor: "0 = 1e-13" salía
+    # compatible en la API aunque el sistema fuera incompatible.
+    info = analyze_argumented(final_matrix, tol=None)
+    solved = solve_from_upper(final_matrix, pivots=pivots, tol=None)
 
     rank_a = info["rank"]
     # rank([A|b]): si el sistema es inconsistente, la columna de b aporta un

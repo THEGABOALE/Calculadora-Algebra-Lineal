@@ -317,13 +317,11 @@ class TestCramerYGaussJordanCoinciden(unittest.TestCase):
                     for xc, xg in zip(cr['solution'], rg['solution']):
                         self.assertTrue(math.isclose(xc, xg, rel_tol=1e-9))
 
-    @unittest.expectedFailure
-    def test_limitacion_conocida_gauss_jordan_bajo_1e_12(self):
-        # Fuera de alcance de esta corrección: core/gauss_jordan.py y
-        # core/system_solver/gauss_solver.py siguen con umbral ABSOLUTO 1e-12
-        # en sus pivotes, así que con entradas ~1e-13 Gauss-Jordan no
-        # encuentra pivotes y clasifica mal un sistema invertible. Cramer ya
-        # lo resuelve bien. Si este test empieza a pasar, quitar el decorador.
+    def test_gauss_jordan_con_entradas_1e_13(self):
+        # Era un expectedFailure: Gauss-Jordan (y gauss_solver) usaban 1e-12
+        # absoluto en sus pivotes y con entradas ~1e-13 no encontraban
+        # ninguno. Corregido en fix/gauss-consistency: usan el mismo criterio
+        # que matrix_tools (CotasDeRedondeo). Ahora es un test normal.
         A, b = esc(1e-13, B), [3e-13, 4e-13]
         self.assertEqual(CramerMethod(copy.deepcopy(A), list(b)).solve()['status'], 'unique')
         gj = GaussJordanMethod(copy.deepcopy(A), list(b))

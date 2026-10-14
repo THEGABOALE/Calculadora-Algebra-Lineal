@@ -12,6 +12,13 @@ Características
 - Registro de pasos en `self.frame` mediante `utils.printMethods.log_step`.
 - Detección de tipo de solución, variables básicas/libres e inconsistencias
   usando `analyze_argumented` y solución particular con `solve_from_upper`.
+- Criterio de "es cero": el de core/matrix_tools.py (cota de redondeo por
+  entrada, ver documentation/CriterioNumerico.md), llevado en paralelo con
+  CotasDeRedondeo. La eliminación deja el ruido en 0.0 exacto, así que el
+  análisis posterior no usa ningún umbral propio. Antes se usaba 1e-12
+  absoluto: con coeficientes ~1e-13 no había pivotes ("infinitas" para un
+  sistema invertible) y con coeficientes ~1e8 el ruido pasaba por dato
+  ("incompatible" para un sistema compatible).
 
 Entradas
 - A: list[list[float]]     b: list[float] (len(b) == filas(A))
@@ -25,14 +32,15 @@ El runner interactivo vive en cli.method_runners; aquí no se imprime nada.
 """
 
 from __future__ import annotations
+import math
+import warnings
 import copy
 from typing import Any, Dict, List, Optional, Tuple
-from math import isclose 
 from core.matrix import Matrix
 from core.system_solver.gauss_solver import analyze_argumented, solve_from_upper
 from utils.EquationFunctions import format_number
 from utils.printMethods import log_step, print_parametric_solution_from_rref
-from core.matrix_tools import determinant, is_singular
+from core.matrix_tools import CotasDeRedondeo, determinant, is_singular
 
 def _una_linea(texto: str) -> str:
     """Aplana un texto multilínea para usarlo como paso del frame.
@@ -94,24 +102,29 @@ class GaussJordanMethod(Matrix):
         self.A: List[List[float]] = copy.deepcopy(matriz)
         self.b: List[float] = copy.deepcopy(b)
         
-        # Log y tolerancias
+        # Log y tolerancias. `tolerance` se conserva como atributo por
+        # compatibilidad, pero ya no decide nada: "es cero" lo decide
+        # self._cotas (criterio de core/matrix_tools.py).
         self.tolerance: float = 1e-12
         self.frame: List[Dict[str, Any]] = []
         self.pivots: List[Tuple[int, int]] = []   # lista de (fila, col) de pivotes detectados en forward
+        self._cotas: Optional[CotasDeRedondeo] = None
 
         # Determinante: solo relevante si A es cuadrada y no escalamos (aquí se escala para RREF),
         # así que lo mantenemos informativo (no lo reportamos).
         self.determinante: Optional[float] = None
-        # Determina si el sistema es homogéneo (todos los valores de b son 0)
-        self.is_homogeneous = all(isclose(bi, 0.0, abs_tol=self.tolerance) for bi in self.b)
-
+        # Homogéneo: b = 0 EXACTO. b es dato, no resultado de una cuenta: un
+        # b_i = 1e-13 tipeado es distinto de cero (antes, con |b_i| <= 1e-12,
+        # el sistema se declaraba homogéneo).
+        self.is_homogeneous = all(bi == 0 for bi in self.b)
 
     # ----------------------
     # Helpers numéricos
     # ----------------------
-    def _zero_small(self, x: float) -> float:
-        """Lleva a 0 valores muy pequeños para limpiar el formato."""
-        return 0.0 if isclose(x, 0.0, abs_tol=self.tolerance) else x
+    def _cotas_actuales(self) -> CotasDeRedondeo:
+        if self._cotas is None:
+            self._cotas = CotasDeRedondeo(self.matriz)
+        return self._cotas
 
     # ----------------------
     # Operaciones elementales (con log)
@@ -121,15 +134,21 @@ class GaussJordanMethod(Matrix):
         if r1 == r2:
             return
         self.matriz[r1], self.matriz[r2] = self.matriz[r2], self.matriz[r1]
+        self._cotas_actuales().intercambiar(r1, r2)
         log_step(self.frame, f"F{r1+1} <-> F{r2+1}", self.matriz, det=None, tag="swap_rows")
         
     def _scale_row(self, r: int, factor: float) -> None:
-        """Normaliza fila: F_r := F_r / factor (factor ≠ 0)."""
-        if isclose(factor, 1.0, abs_tol=self.tolerance):
+        """Normaliza fila: F_r := F_r / factor (factor ≠ 0).
+
+        Se saltea sólo si factor es 1 exacto: antes se salteaba con
+        |factor - 1| <= 1e-12 y el pivote quedaba sin normalizar.
+        """
+        if factor == 1.0:
             return
-        if isclose(factor, 0.0, abs_tol=self.tolerance):
+        if factor == 0.0:
             raise ValueError("No se puede escalar por 0.")
-        self.matriz[r] = [self._zero_small(v / factor) for v in self.matriz[r]]
+        self.matriz[r] = [v / factor for v in self.matriz[r]]
+        self._cotas_actuales().escalar(r, factor)
         log_step(self.frame, f"F{r+1} -> F{r+1} / {format_number(factor)}", self.matriz, det=None, tag="scale")
         
     def _row_elim(self, target_r: int, pivot_r: int, pivot_c: int) -> None:
@@ -137,19 +156,31 @@ class GaussJordanMethod(Matrix):
         Eliminación en columna pivot_c:
             F_target := F_target - (A[target,pivot_c]/A[pivot_r,pivot_c]) * F_pivot
         """
+        cotas = self._cotas_actuales()
         pivot_val = self.matriz[pivot_r][pivot_c]
-        if isclose(pivot_val, 0.0, abs_tol = self.tolerance):
+        if pivot_val == 0.0:
             return
-        
-        factor = self.matriz[target_r][pivot_c] / pivot_val
-        if isclose(factor, 0.0, abs_tol=self.tolerance):
+
+        entrada = self.matriz[target_r][pivot_c]
+        if entrada == 0.0:
             return
-        
+        if cotas.es_cero(entrada, target_r, pivot_c):
+            # Ruido de redondeo, no un coeficiente: se deja en 0 exacto, sin
+            # registrar una operación que no hace nada.
+            self.matriz[target_r][pivot_c] = 0.0
+            return
+
+        factor = entrada / pivot_val
         row_len = len(self.matriz[0])
         for j in range(pivot_c, row_len):
-            self.matriz[target_r][j] = self._zero_small(self.matriz[target_r][j] - factor * self.matriz[pivot_r][j])
-        
-        signo = "+" if factor < 0 else "-"
+            self.matriz[target_r][j] = self.matriz[target_r][j] - factor * self.matriz[pivot_r][j]
+        cotas.restar(target_r, pivot_r, factor, desde=pivot_c)
+        self.matriz[target_r][pivot_c] = 0.0
+        for j in range(pivot_c + 1, row_len):
+            if cotas.es_cero(self.matriz[target_r][j], target_r, j):
+                self.matriz[target_r][j] = 0.0
+
+        signo= "+" if factor < 0 else "-"
         log_step(self.frame,
                  f"F{target_r+1} -> F{target_r+1} {signo} {format_number(abs(factor))}*F{pivot_r+1}",
                  self.matriz, det=None, tag="elim")
@@ -158,17 +189,17 @@ class GaussJordanMethod(Matrix):
     # Pivoteo parcial por filas
     # ----------------------
     def _select_pivot_row(self, start_row: int, col: int) -> int:
-        """Devuelve fila con |A[row,col]| máximo desde start_row; -1 si la columna ~ 0."""
-        best = -1
-        best_val = 0.0
-        for r in range(start_row, self.filas):
-            val = abs(self.matriz[r][col])
-            if val > best_val:
-                best_val = val
-                best = r
-        if isclose(best_val, 0.0, abs_tol=self.tolerance):
+        """Devuelve la fila con |A[row,col]| máximo desde start_row, entre las
+        entradas que no son cero según el criterio; -1 si no hay ninguna (lo
+        que queda en la columna es ruido y se deja en 0 exacto)."""
+        cotas = self._cotas_actuales()
+        candidatos = [r for r in range(start_row, self.filas)
+                      if self.matriz[r][col] != 0.0 and not cotas.es_cero(self.matriz[r][col], r, col)]
+        if not candidatos:
+            for r in range(start_row, self.filas):
+                self.matriz[r][col] = 0.0
             return -1
-        return best
+        return max(candidatos, key=lambda r: abs(self.matriz[r][col]))
     
     # ----------------------
     # Fase 1: Eliminación hacia adelante (triangulación superior)
@@ -180,6 +211,7 @@ class GaussJordanMethod(Matrix):
         m = self.filas
         n_plus_1 = self.columnas
         n = n_plus_1 - 1  # solo columnas de coeficientes
+        self._cotas = CotasDeRedondeo(self.matriz)
 
         log_step(self.frame, "Matriz aumentada inicial", self.matriz, det=None, tag="start")
 
@@ -225,7 +257,7 @@ class GaussJordanMethod(Matrix):
         # Normalizar cada pivote a 1 (de abajo a arriba) y eliminar arriba
         for (r, c) in reversed(self.pivots):
             piv = self.matriz[r][c]
-            if isclose(piv, 0.0, abs_tol=self.tolerance):
+            if piv == 0.0:
                 continue
             # Diagonal de 1
             self._scale_row(r, piv)
@@ -252,9 +284,19 @@ class GaussJordanMethod(Matrix):
             # Sin tol: criterio de cero por cota de redondeo de matrix_tools. Con
             # el 1e-12 absoluto de antes, det(1e-8·I) se mostraba como 0 en un
             # sistema que el propio Gauss-Jordan resolvia con solucion unica.
-            det = determinant(self.A)
+            with warnings.catch_warnings():
+                # determinant() avisa con RuntimeWarning si |det(A)| no entra
+                # en un double; acá se dice en el paso en vez de "det = 0".
+                warnings.simplefilter("ignore", RuntimeWarning)
+                det = determinant(self.A)
             self.determinante = det
-            log_step(self.frame, f"Determinante de A = {format_number(det)}", self.matriz, det=det, tag="det")
+            if (det == 0.0 or math.isinf(det)) and is_singular(self.A) is False:
+                log_step(self.frame,
+                         "Determinante de A: no representable en coma flotante "
+                         f"({'subdesborda a 0' if det == 0.0 else 'desborda a infinito'}); A es invertible",
+                         self.matriz, det=None, tag="det")
+            else:
+                log_step(self.frame, f"Determinante de A = {format_number(det)}", self.matriz, det=det, tag="det")
             sing = self.is_singular()
             sing_msg = "singular" if sing else "no singular" if sing is not None else "no aplicable"
             log_step(self.frame, f"Estado de singularidad: {sing_msg}", self.matriz, det=det, tag="singularity")
@@ -269,8 +311,14 @@ class GaussJordanMethod(Matrix):
     # Análisis y solución
     # ----------------------
     def analyze(self) -> Dict[str, Any]:
-        """Analiza [A|b] con analyze_argumented: rank, pivotes, básicas/libres, inconsistencias."""
-        return analyze_argumented(self.matriz, tol=self.tolerance)
+        """Analiza [A|b] con analyze_argumented: rank, pivotes, básicas/libres, inconsistencias.
+
+        Sin tolerancia: la eliminación ya dejó el ruido en 0.0 exacto con el
+        criterio de core/matrix_tools.py. Antes se volvía a mirar la matriz
+        final con 1e-12 absoluto, que descartaba un b_i = 1e-13 real (0 = 1e-13
+        salía "compatible").
+        """
+        return analyze_argumented(self.matriz)
 
     def solve_and_log(self) -> Dict[str, Any]:
         """
@@ -301,7 +349,7 @@ class GaussJordanMethod(Matrix):
             return {**info, "solution": None}
 
         # Solución particular y paramétrica
-        result = solve_from_upper(self.matriz, pivots=pivots, tol=self.tolerance)
+        result = solve_from_upper(self.matriz, pivots=pivots)
         sol = result.get("solution")
         basic = result.get("basic_vars", [])
         free = result.get("free_vars", [])
@@ -314,7 +362,7 @@ class GaussJordanMethod(Matrix):
         # devolvería el listado de valores, que ya se registra como "solution".
         parametric = None
         if status == "infinite":
-            parametric = print_parametric_solution_from_rref(self.matriz, tol=self.tolerance)
+            parametric = print_parametric_solution_from_rref(self.matriz)
 
         # Log incondicional de la solución particular. Estaba en main y en la rama
         # Vectores, y se perdió al integrar HomoNohomo, que lo repartió entre las
