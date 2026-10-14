@@ -27,6 +27,7 @@ de `core/` no se enteran del cambio.
 
 from __future__ import annotations
 import copy
+import sys
 from typing import Any, Callable, Dict, List, Optional
 from utils.EquationFunctions import num_to_sub, format_number, parse_fraction
 
@@ -271,8 +272,18 @@ def compare_determinant_methods(cramer_obj, matrix: List[List[float]]):
     for method, det_val in results.items():
         print(f"{method:15s}: {format_number(det_val)}")
 
-    # Verificar consistencia
-    all_equal = all(abs(det_val - det1) < 1e-10 for det_val in results.values())
+    # Verificar consistencia. La diferencia tolerable entre dos cálculos de
+    # det(A) es el redondeo que pueden acumular: proporcional a
+    # n·eps·Π_i Σ_j |a_ij| (cota de Hadamard por filas), con el mismo factor
+    # 1e4 que el criterio de core/matrix_tools.py (no se importa de ahí para
+    # no crear un import circular: matrix_tools importa este módulo). El
+    # < 1e-10 absoluto de antes daba "iguales" a cualquier par de
+    # determinantes ~1e-15 y "distintos" a dos cálculos correctos ~1e10.
+    escala = 1.0
+    for fila in matrix:
+        escala *= sum(abs(x) for x in fila)
+    margen = 1e4 * n * sys.float_info.epsilon * escala
+    all_equal = all(abs(det_val - det1) <= margen for det_val in results.values())
     if all_equal:
         print("\n✓ Todos los métodos producen el mismo resultado")
     else:

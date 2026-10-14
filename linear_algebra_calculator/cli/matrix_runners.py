@@ -346,12 +346,14 @@ def run_matrix_inverse():
     A = _maybe_pick_from_memory((r, c)) or read_matrix_only(r, c)
 
     try:
-        det_val = determinant(A)
-        if abs(det_val) <= 1e-12:
+        # Singularidad por rango (criterio de core/matrix_tools.py), no por
+        # |det| <= 1e-12: ese umbral rechazaba 1e-5·I (det = 1e-15), que es
+        # invertible y que inverse() sí acepta.
+        if is_singular(A):
             print("La matriz es singular (determinante = 0) y no tiene inversa.")
             return
     except Exception:
-        # si falla el determinante, seguimos y dejamos que inverse lance
+        # si falla el chequeo, seguimos y dejamos que inverse lance
         pass
 
     try:
