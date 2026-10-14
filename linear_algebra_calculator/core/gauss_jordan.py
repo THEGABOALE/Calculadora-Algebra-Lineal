@@ -40,7 +40,11 @@ from core.matrix import Matrix
 from core.system_solver.gauss_solver import analyze_argumented, solve_from_upper
 from utils.EquationFunctions import format_number
 from utils.printMethods import log_step, print_parametric_solution_from_rref
-from core.matrix_tools import CotasDeRedondeo, determinant, is_singular
+from core.matrix_tools import CotasDeRedondeo, determinant
+# Singularidad de A sobre la matriz de coeficientes ORIGINAL (rango por el
+# criterio de matrix_tools). Alias para no confundirla con el método
+# GaussJordanMethod.is_singular().
+from core.matrix_tools import is_singular as singular_por_rango
 
 def _una_linea(texto: str) -> str:
     """Aplana un texto multilínea para usarlo como paso del frame.
@@ -109,6 +113,9 @@ class GaussJordanMethod(Matrix):
         self.frame: List[Dict[str, Any]] = []
         self.pivots: List[Tuple[int, int]] = []   # lista de (fila, col) de pivotes detectados en forward
         self._cotas: Optional[CotasDeRedondeo] = None
+        # True cuando self.matriz ya está escalonada (forward_elimination corrió):
+        # recién ahí analyze() puede leer el rango de la matriz.
+        self._eliminada: bool = False
 
         # Determinante: solo relevante si A es cuadrada y no escalamos (aquí se escala para RREF),
         # así que lo mantenemos informativo (no lo reportamos).
@@ -241,6 +248,7 @@ class GaussJordanMethod(Matrix):
             row += 1
 
         self.pivots = pivots
+        self._eliminada = True
         log_step(self.frame, "Triangulación superior (U)", self.matriz, det=None, tag="upper")
         return pivots
 
@@ -290,16 +298,30 @@ class GaussJordanMethod(Matrix):
                 warnings.simplefilter("ignore", RuntimeWarning)
                 det = determinant(self.A)
             self.determinante = det
-            if (det == 0.0 or math.isinf(det)) and is_singular(self.A) is False:
+            # Singularidad de A sobre A ORIGINAL. Antes se usaba
+            # self.is_singular(), que miraba self.matriz con analyze_argumented
+            # ANTES de eliminar: sin escalonar, cada fila no nula "tiene
+            # pivote", y [[1,2],[2,4]] (rango 1) salía "no singular" justo
+            # debajo de "Determinante de A = 0".
+            sing = singular_por_rango(self.A)
+            if (det == 0.0 or math.isinf(det)) and sing is False:
                 log_step(self.frame,
                          "Determinante de A: no representable en coma flotante "
                          f"({'subdesborda a 0' if det == 0.0 else 'desborda a infinito'}); A es invertible",
                          self.matriz, det=None, tag="det")
             else:
                 log_step(self.frame, f"Determinante de A = {format_number(det)}", self.matriz, det=det, tag="det")
-            sing = self.is_singular()
-            sing_msg = "singular" if sing else "no singular" if sing is not None else "no aplicable"
-            log_step(self.frame, f"Estado de singularidad: {sing_msg}", self.matriz, det=det, tag="singularity")
+            if sing is None:
+                sing_msg = "no aplicable (A no es cuadrada)"
+            elif sing:
+                # Singular NO es incompatible: sólo dice que no hay solución
+                # única. Compatible indeterminado o incompatible se decide al
+                # eliminar (rango(A) frente a rango([A|b])).
+                sing_msg = ("singular (rango(A) < n): no hay solución única; si Ax = b es compatible "
+                            "(infinitas soluciones) o incompatible se decide al eliminar")
+            else:
+                sing_msg = "no singular (rango(A) = n): Ax = b tiene solución única"
+            log_step(self.frame, f"Estado de singularidad de A: {sing_msg}", self.matriz, det=det, tag="singularity")
         except Exception:
             # si no es cuadrada o falla, no interrumpimos el proceso
             pass
@@ -346,7 +368,15 @@ class GaussJordanMethod(Matrix):
 
         if status == "inconsistent":
             log_step(self.frame, "Sistema inconsistente: no existe solución", self.matriz, det=None, tag="inconsistent")
-            return {**info, "solution": None}
+            # Mismas claves que las otras ramas: antes faltaban is_singular,
+            # determinant, tipo_sistema... y r["is_singular"] daba KeyError
+            # justo en el caso incompatible.
+            return {**info, "solution": None,
+                    "parametric_solution": None,
+                    "tipo_sistema": tipo_sistema,
+                    "dependencia": dependencia,
+                    "determinant": self.determinante,
+                    "is_singular": self.is_singular()}
 
         # Solución particular y paramétrica
         result = solve_from_upper(self.matriz, pivots=pivots)
@@ -434,12 +464,19 @@ class GaussJordanMethod(Matrix):
         """
         Devuelve True si rank(A) < n (A singular) para matrices cuadradas.
         None si A no es cuadrada.
+
+        Válido antes y después de eliminar: analyze() sólo sabe leer el rango
+        de una matriz YA escalonada, así que antes de forward_elimination se
+        usa core.matrix_tools.is_singular sobre A original (mismo criterio
+        de cero que la eliminación).
         """
         # n = columnas de coeficientes
         n = self.columnas - 1
         m = self.filas
         if n != m:
             return None  # no aplica (A no es cuadrada)
+        if not self._eliminada:
+            return singular_por_rango(self.A)
         info = self.analyze()
         return info.get("rank", 0) < n
 
