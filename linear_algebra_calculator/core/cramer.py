@@ -1,10 +1,10 @@
 from core.matrix import Matrix
-from core.matrix_tools import rank_of
+from core.matrix_tools import rank_of, system_ranks
 from typing import Any, Dict, List, Optional
 from utils.printMethods import log_step
 from utils.EquationFunctions import format_number, num_to_sub
 import copy
-from math import isclose
+from math import isfinite
 
 class CramerMethod(Matrix):
     """
@@ -87,7 +87,32 @@ class CramerMethod(Matrix):
         det = positive - negative
         log_step(self.frame, f"Paso 4: Determinante = ({format_number(positive)}) - ({format_number(negative)}) = {format_number(det)}", matrix, det=format_number(det), tag="sarrus_result")
 
-        return det
+        return self._descartar_ruido(matrix, det, tag="sarrus_rounding")
+
+    #-----------------------
+    # Ruido de redondeo en un determinante calculado por aritmetica directa
+    #-----------------------
+    def _descartar_ruido(self, matrix: List[List[float]], det: float, tag: str) -> float:
+        """
+        Sarrus y cofactores calculan det(A) con sumas y productos directos.
+        Con entradas decimales (0.1, 0.2...) que no son representables en
+        binario, una matriz singular suele dar ~1e-17 en vez de 0. Antes eso
+        quedaba oculto porque format_number mostraba cualquier |x| < 1e-9
+        como "0"; ahora se muestra el valor real, así que hay que decir qué
+        es. Si la matriz es numéricamente singular (rango < n, el mismo
+        criterio que core/matrix_tools.py), se agrega un paso que lo explica
+        y se devuelve 0.0. Si no lo es, el valor calculado se respeta por
+        chico que sea: det(1e-5·I) = 1e-15 no es ruido.
+        """
+        if det == 0.0 or rank_of(matrix) == len(matrix):
+            return det
+        log_step(
+            self.frame,
+            f"El resultado {format_number(det)} es ruido de redondeo de la aritmética en coma flotante: "
+            f"la matriz es numéricamente singular (rango < {len(matrix)}), así que det = 0",
+            matrix, det="0", tag=tag,
+        )
+        return 0.0
 
     #-----------------------
     # DETERMINANTE - EXPANSIÓN POR COFACTORES
@@ -112,6 +137,8 @@ class CramerMethod(Matrix):
             det = matrix[0][0] * matrix[1][1] - matrix[0][1] * matrix[1][0]
             if show_steps and level > 0:
                 log_step(self.frame, f"  {'  '*level}Submatriz 2×2: det = ({format_number(matrix[0][0])})×({format_number(matrix[1][1])}) - ({format_number(matrix[0][1])})×({format_number(matrix[1][0])}) = {format_number(det)}", matrix, det=format_number(det), tag=f"cofactor_2x2_level{level}")
+            if level == 0 and show_steps:
+                return self._descartar_ruido(matrix, det, tag="cofactor_rounding")
             return det
 
         # Caso recursivo: expansión por la primera fila
@@ -147,6 +174,8 @@ class CramerMethod(Matrix):
         if show_steps and level == 0:
             log_step(self.frame, f"Determinante = {' '.join(cofactor_details)} = {format_number(det)}", matrix, det=format_number(det), tag="cofactor_result")
 
+        if level == 0 and show_steps:
+            return self._descartar_ruido(matrix, det, tag="cofactor_rounding")
         return det
 
     #-----------------------
@@ -216,21 +245,56 @@ class CramerMethod(Matrix):
         """
         self.frame = []
         self.solution = None
-        
+        n = self.n_variables
+        # Los n determinantes de Cramer tal como se decidieron (0.0 exacto si
+        # la matriz Aᵢ es numéricamente singular). api/adapters/reduce.py los
+        # muestra desde acá en vez de recalcularlos.
+        self.determinants_C: List[float] = []
+
         # Calculo de determinante
-        detA = self.calculate_determinant(self.matrix_A, show_sarrus=(self.n_variables == 3))
+        detA_calculado = self.calculate_determinant(self.matrix_A, show_sarrus=(n == 3))
+
+        # Si det(A) es 0 o no NO se decide por el tamaño del número: det(c·I)
+        # = cⁿ, así que 1e-5·I tiene det = 1e-15 y es perfectamente
+        # invertible (antes, con |det| <= 1e-12, salía "inconsistente"). Se
+        # decide por el rango, con el mismo criterio de cero que usan
+        # rank_of / determinant / is_singular de core/matrix_tools.py. A la
+        # inversa, una matriz singular tipeada con decimales (0.1, 0.2...)
+        # suele dar por aritmética un det de ~1e-17 en vez de 0: es ruido de
+        # redondeo, se informa como tal y det(A) se toma como 0.
+        singular = rank_of(self.matrix_A) < n
+        detA = 0.0 if singular else detA_calculado
         self.determinant_A = detA
 
-        
-        log_step(self.frame, "Determinante matriz A",self.matrix_A, det=format_number(detA), tag="Determinante A")
-        
+        texto_det = "Determinante matriz A"
+        if singular and detA_calculado != 0.0:
+            texto_det += (f" (la aritmética da {format_number(detA_calculado)}, que es ruido de redondeo: "
+                          f"A es numéricamente singular, rango(A) < {n}, así que det(A) = 0)")
+        log_step(self.frame, texto_det, self.matrix_A, det=format_number(detA), tag="Determinante A")
+
         # Si detA != 0 -> solucion unica
-        if not isclose(detA, 0.0, abs_tol=self.tolerance):
+        if not singular:
+            # Rango completo pero el producto no es representable en coma
+            # flotante (p. ej. entradas ~1e-110 en 3x3: det ~1e-330 da 0.0
+            # por subdesbordamiento). La regla xᵢ = det(Aᵢ)/det(A) no se puede
+            # evaluar; decirlo es mejor que dividir por cero o devolver nan.
+            if detA_calculado == 0.0 or not isfinite(detA_calculado):
+                raise ValueError(
+                    "A es invertible, pero det(A) no es representable en coma flotante "
+                    f"(se obtuvo {detA_calculado}): la regla de Cramer no se puede aplicar con "
+                    "estas magnitudes. Usá Gauss-Jordan o reescalá el sistema."
+                )
             solution: List[float] = []
-            for col in range(self.n_variables):
+            for col in range(n):
                 C = self.create_cramer_matrix(col)
-                detC = self.calculate_determinant(C, show_sarrus=(self.n_variables == 3))
+                detC = self.calculate_determinant(C, show_sarrus=(n == 3))
                 xi = detC / detA
+                if not isfinite(xi):
+                    raise ValueError(
+                        f"det(A{num_to_sub(col+1)}) no es representable en coma flotante "
+                        f"(se obtuvo {detC}): la regla de Cramer no se puede aplicar con estas magnitudes."
+                    )
+                self.determinants_C.append(detC)
                 log_step(self.frame, f"Matriz Cramer para x{num_to_sub(col+1)}", C, det = format_number(detC), tag=f"cramer_x{col+1}")
                 solution.append(xi)
             self.solution = solution
@@ -258,14 +322,22 @@ class CramerMethod(Matrix):
         # compatible con solucion x, b = sum(xj * aj) y, por multilinealidad,
         # det(Ai) = xi * det(A) = 0 para todo i. Por contrarreciproca, algun
         # det(Ai) != 0 PRUEBA que el sistema es inconsistente.
-        detC_values = []
-        for col in range(self.n_variables):
+        # "det(Aᵢ) ≠ 0" se decide igual que det(A): por el rango de Aᵢ.
+        algun_no_nulo = False
+        for col in range(n):
             C = self.create_cramer_matrix(col)
-            detC = self.calculate_determinant(C, show_sarrus=(self.n_variables == 3))
-            detC_values.append(detC)
-            log_step(self.frame, f"Matriz de Cramer para x{num_to_sub(col+1)}", C,det=format_number(detC), tag=f"cramer_check_x{col+1}")
+            detC_calculado = self.calculate_determinant(C, show_sarrus=(n == 3))
+            no_nulo = rank_of(C) == n
+            detC = detC_calculado if no_nulo else 0.0
+            algun_no_nulo = algun_no_nulo or no_nulo
+            self.determinants_C.append(detC)
+            texto = f"Matriz de Cramer para x{num_to_sub(col+1)}"
+            if not no_nulo and detC_calculado != 0.0:
+                texto += (f" (la aritmética da {format_number(detC_calculado)}, que es ruido de redondeo: "
+                          f"A{num_to_sub(col+1)} es numéricamente singular, así que su det = 0)")
+            log_step(self.frame, texto, C,det=format_number(detC), tag=f"cramer_check_x{col+1}")
 
-        if any(not isclose(v, 0.0, abs_tol=self.tolerance) for v in detC_values):
+        if algun_no_nulo:
             log_step(self.frame, "det(A) = 0 y algún det(Aᵢ) ≠ 0 -> sistema inconsistente", self.matrix_A, det=format_number(detA), tag="inconsistent")
             result = {
             'status': 'inconsistent',
@@ -323,15 +395,16 @@ class CramerMethod(Matrix):
         compatible significa infinitas soluciones.
 
         No es Cramer: es eliminación por filas sobre la matriz aumentada
-        (`core.matrix_tools.rank_of`, el mismo motor de rango que usa
-        matrix/properties). Se registra en el frame como un paso aparte,
-        con la matriz [A|b], para que el procedimiento muestre que la
-        conclusión no salió de los determinantes.
+        (`core.matrix_tools.system_ranks`, el mismo motor y el mismo
+        criterio de cero que rank_of y matrix/properties). Los dos rangos
+        salen de UNA eliminación de [A|b], sin normalizar la columna b, así
+        que b de otra magnitud que A no altera la decisión. Se registra en el
+        frame como un paso aparte, con la matriz [A|b], para que el
+        procedimiento muestre que la conclusión no salió de los determinantes.
         """
         n = self.n_variables
         aumentada = [list(row) + [bi] for row, bi in zip(self.matrix_A, self.vector_b)]
-        rango_a = rank_of(self.matrix_A, tol=self.tolerance)
-        rango_ab = rank_of(aumentada, tol=self.tolerance)
+        rango_a, rango_ab = system_ranks(self.matrix_A, self.vector_b)
 
         log_step(
             self.frame,
@@ -349,11 +422,8 @@ class CramerMethod(Matrix):
             )
             return 'inconsistent'
 
-        # rango_a == rango_ab. Con det(A) = 0, rango(A) < n: infinitas.
-        # (Si la tolerancia absoluta de det(A) y la de rank_of discreparan y
-        # rango_a llegara a n, no estariamos en esta rama por un det(A)
-        # genuinamente nulo; ver la limitacion documentada en
-        # documentation/CramerMethod.md.)
+        # rango_a == rango_ab. Llegamos aca solo si rango(A) < n (det(A) se
+        # decidio por el mismo rango), asi que compatible = infinitas.
         log_step(
             self.frame,
             f"rango(A) = rango([A|b]) = {rango_a} < {n} -> infinitas soluciones "

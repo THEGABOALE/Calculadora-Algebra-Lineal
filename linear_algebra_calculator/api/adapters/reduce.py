@@ -74,13 +74,13 @@ def _summary(final_matrix: Matrix, pivots) -> Dict[str, Any]:
 def _cramer_determinants(solver: CramerMethod, det_a: float) -> List[Dict[str, Any]]:
     """Los n+1 determinantes de la regla: det(A) y un det(Aᵢ) por variable.
 
-    `CramerMethod.solve()` calcula los n determinantes de Cramer pero no los
-    devuelve -- los escribe en el frame ya formateados como texto
-    (`det=format_number(detC)`), que sirve para mostrar el paso pero no para
-    operar. Recuperar el número parseando esa cadena de vuelta sería frágil,
-    así que se recalculan acá con `calculate_determinant(..., show_sarrus=
-    False)`: misma aritmética que usó solve() y, con show_sarrus en False, sin
-    un solo log_step -- no toca el frame que ya se armó.
+    `CramerMethod.solve()` no devuelve los n determinantes de Cramer en el
+    resultado, pero los deja en `solver.determinants_C` tal como los decidió:
+    0.0 exacto cuando Aᵢ es numéricamente singular (rango < n), aunque la
+    aritmética haya dado ruido de redondeo como 1e-17. Se toman de ahí y no
+    se recalculan: recalcularlos con `calculate_determinant` devolvería ese
+    ruido y la respuesta mostraría un det(Aᵢ) ≠ 0 justo en el caso en que el
+    procedimiento dice que vale 0.
 
     Es el dato que la Fase 7 tiene que hacer llegar hasta el navegador: el
     frontend heredado mostraba UN determinante para Cramer, que es
@@ -98,7 +98,7 @@ def _cramer_determinants(solver: CramerMethod, det_a: float) -> List[Dict[str, A
 
     for col in range(solver.n_variables):
         C = solver.create_cramer_matrix(col)
-        det_c = solver.calculate_determinant(C, show_sarrus=False)
+        det_c = solver.determinants_C[col]
         determinants.append(
             {
                 "variable": col,
