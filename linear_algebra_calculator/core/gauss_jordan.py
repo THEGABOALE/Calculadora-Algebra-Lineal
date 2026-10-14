@@ -249,7 +249,10 @@ class GaussJordanMethod(Matrix):
         log_step(self.frame, msg, self.matriz, det=None, tag="homogeneity_check")
         # Calcular determinante de A (si es cuadrada) usando Gauss-Jordan y registrar
         try:
-            det = determinant(self.A, tol=self.tolerance)
+            # Sin tol: criterio de cero por cota de redondeo de matrix_tools. Con
+            # el 1e-12 absoluto de antes, det(1e-8·I) se mostraba como 0 en un
+            # sistema que el propio Gauss-Jordan resolvia con solucion unica.
+            det = determinant(self.A)
             self.determinante = det
             log_step(self.frame, f"Determinante de A = {format_number(det)}", self.matriz, det=det, tag="det")
             sing = self.is_singular()

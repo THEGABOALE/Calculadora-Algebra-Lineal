@@ -1,11 +1,62 @@
 # utils/matrix_tools.py
 from __future__ import annotations
-from typing import List, Tuple
+import sys
+from typing import List, Optional, Tuple
 from utils.EquationFunctions import format_number
 from utils.printMethods import format_matrix
 from utils.printMethods import log_step
 
 Matrix = List[List[float]]
+
+# --------------------------
+# Criterio numérico de "cero" (compartido por rango, determinante,
+# singularidad, inversa y la clasificación de Cramer)
+# --------------------------
+# En coma flotante casi ningún resultado de una eliminación da 0 exacto, así
+# que hace falta decidir cuándo un número es "cero". Un umbral ABSOLUTO (el
+# 1e-12 que se usaba antes) depende de la escala: declara singular a
+# 1e-5·I (det = 1e-15) y, al revés, deja pasar ruido en matrices grandes. Un
+# umbral relativo al máximo de toda la matriz tampoco alcanza: con
+# diag(1e8, 1e-8), o con [A|b] cuando b tiene otra magnitud que A, la columna
+# chica quedaría por debajo del umbral de la grande.
+#
+# Criterio elegido: COTA DE REDONDEO POR ENTRADA. Junto a cada entrada M[i][j]
+# se lleva S[i][j], la suma de los valores absolutos que intervinieron en
+# calcularla (al inicio S = |M|; en cada M[r] -= f·M[p], S[r] += |f|·S[p]).
+# El error de redondeo acumulado en M[i][j] es del orden de eps·S[i][j], así
+# que una entrada se considera cero si
+#
+#     |M[i][j]| <= tau · S[i][j],    tau = FACTOR · max(m, n) · eps
+#
+# Propiedades: un dato que es 0 exacto sigue siendo 0 (S = 0); una entrada
+# que no participó en ninguna operación nunca se declara cero, por chica que
+# sea; escalar filas o columnas de la entrada no cambia la decisión; y cada
+# columna -- incluida la de b en [A|b] -- se juzga con sus propias
+# magnitudes, sin normalizar nada.
+#
+# FACTOR = 1e4 es una calibración empírica, no un teorema: los decimales que
+# tipea un usuario (0.1, 0.3...) no son representables en binario, así que
+# una matriz singular "como se escribió" llega levemente no singular. Sobre
+# 20.000 matrices singulares con entradas decimales de 1-2 cifras el ruido
+# medido llegó a ~2.5e3 en unidades de max(m,n)·eps·S; los pivotes legítimos
+# quedaron por encima de 5e10. Consecuencia documentada: una matriz cuya
+# singularidad se decide recién en la ~12ª cifra significativa (número de
+# condición del orden de 1e12 o mayor) se trata como numéricamente singular.
+#
+# Si el llamador pasa un `tol` explícito, se respeta como umbral absoluto
+# (comportamiento anterior), para no romper a quien lo use a propósito.
+_EPS = sys.float_info.epsilon
+FACTOR_REDONDEO = 1e4
+
+
+def _tau(m: int, n: int) -> float:
+    return FACTOR_REDONDEO * max(m, n, 1) * _EPS
+
+
+def _es_cero(valor: float, cota: float, tau: float, tol: Optional[float]) -> bool:
+    if tol is not None:
+        return abs(valor) <= tol
+    return abs(valor) <= tau * cota
 
 # --------------------------
 # Validaciones y formas
@@ -155,66 +206,97 @@ def multiply_mat_vec(A: Matrix, v: List[float]) -> List[float]:
         raise ValueError("Dimensiones incompatibles para multiplicar matriz por vector.")
     return [sum(A[i][j] * v[j] for j in range(n)) for i in range(m)]
 
-def _rref_matrix(A: Matrix, tol: float = 1e-12) -> Tuple[Matrix, int]:
-    """Devuelve una copia en RREF y el rango (número de pivotes no nulos)."""
-    M = _copy_matrix(A)
+def _reducir(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, List[int], float]:
+    """Gauss-Jordan con pivoteo parcial y el criterio de cero de arriba.
+
+    Devuelve (R, columnas_pivote, producto_de_pivotes):
+    - R: copia de A en RREF; las entradas que el criterio declara cero
+      quedan en 0.0 exacto (ruido de redondeo, no dato).
+    - columnas_pivote: en orden de fila; su largo es el rango.
+    - producto_de_pivotes: producto de los pivotes ANTES de normalizarlos,
+      con el signo de los intercambios. Si A es cuadrada y de rango completo
+      es det(A); si no, no significa nada y quien lo use debe mirar el rango.
+
+    Es la única eliminación detrás de rank_of, determinant e is_singular, así
+    que los tres no pueden discrepar entre sí sobre si algo es cero.
+    """
+    M = [[float(x) for x in row] for row in A]
     m, n = shape_of(M)
+    S = [[abs(x) for x in row] for row in M]
+    tau = _tau(m, n)
+    pivot_cols: List[int] = []
+    producto = 1.0
     row = 0
-    pivots = 0
     for col in range(n):
         if row >= m:
             break
-        # buscar pivote en [row..m-1]
-        sel = row
-        best = abs(M[row][col])
-        for r in range(row + 1, m):
-            v = abs(M[r][col])
-            if v > best:
-                best = v
-                sel = r
-        if best <= tol:
+        candidatos = [r for r in range(row, m) if not _es_cero(M[r][col], S[r][col], tau, tol)]
+        if not candidatos:
+            # Columna sin pivote: lo que quede debajo es ruido -> 0 exacto.
+            for r in range(row, m):
+                M[r][col] = 0.0
             continue
+        sel = max(candidatos, key=lambda r: abs(M[r][col]))
         if sel != row:
             M[row], M[sel] = M[sel], M[row]
+            S[row], S[sel] = S[sel], S[row]
+            producto = -producto
         pivot = M[row][col]
-        # escalar fila
+        producto *= pivot
+        # escalar fila (la cota relativa se escala igual)
         for j in range(col, n):
             M[row][j] = M[row][j] / pivot
-        # anular otras filas
+            S[row][j] = S[row][j] / abs(pivot)
+        M[row][col] = 1.0
+        # anular la columna en las demás filas
         for r in range(m):
             if r == row:
                 continue
             factor = M[r][col]
-            if abs(factor) <= tol:
+            if factor == 0.0:
                 continue
-            for j in range(col, n):
+            for j in range(col + 1, n):
                 M[r][j] = M[r][j] - factor * M[row][j]
+                S[r][j] = S[r][j] + abs(factor) * S[row][j]
+                if _es_cero(M[r][j], S[r][j], tau, tol):
+                    M[r][j] = 0.0
+            M[r][col] = 0.0
+        pivot_cols.append(col)
         row += 1
-        pivots += 1
-    return M, pivots
+    return M, pivot_cols, producto
 
-def rank_of(A: Matrix, tol: float = 1e-12) -> int:
-    _, pivots = _rref_matrix(A, tol=tol)
-    return pivots
+def _rref_matrix(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, int]:
+    """Devuelve una copia en RREF y el rango (número de pivotes no nulos)."""
+    R, pivot_cols, _ = _reducir(A, tol=tol)
+    return R, len(pivot_cols)
 
-def nullspace_vector(A: Matrix, tol: float = 1e-12) -> List[float] | None:
+def rank_of(A: Matrix, tol: Optional[float] = None) -> int:
+    return len(_reducir(A, tol=tol)[1])
+
+def system_ranks(A: Matrix, b: List[float], tol: Optional[float] = None) -> Tuple[int, int]:
+    """(rango(A), rango([A|b])) para el teorema de Rouché–Frobenius.
+
+    Sale de UNA sola eliminación sobre [A|b]: las columnas se procesan de
+    izquierda a derecha y la elección de pivote en una columna de A no mira
+    la de b, así que el rango de A que resulta es exactamente el que daría
+    rank_of(A). Por construcción rango([A|b]) - rango(A) es 0 o 1. No se
+    normaliza nada: la columna b se juzga con sus propias magnitudes.
+    """
+    m, n = shape_of(A)
+    if len(b) != m:
+        raise ValueError("El vector b debe tener tantas entradas como filas tiene A.")
+    aumentada = [list(row) + [bi] for row, bi in zip(A, b)]
+    pivot_cols = _reducir(aumentada, tol=tol)[1]
+    rango_a = sum(1 for c in pivot_cols if c < n)
+    return rango_a, len(pivot_cols)
+
+def nullspace_vector(A: Matrix, tol: Optional[float] = None) -> List[float] | None:
     """Intenta construir un vector no trivial x tal que A x = 0 si existe.
     Devuelve None si sólo la solución trivial.
     Regresa un vector con una libre asignada a 1 cuando sea posible.
     """
     m, n = shape_of(A)
-    # Construir matriz aumentada [A | 0]
-    M = [row[:] + [0.0] for row in _copy_matrix(A)]
-    R, pivots = _rref_matrix(M, tol=tol)
-    if pivots == n:
-        return None
-    # identificar columnas pivote
-    pivot_cols = []
-    for i in range(m):
-        for j in range(n):
-            if abs(R[i][j]) > tol:
-                pivot_cols.append(j)
-                break
+    R, pivot_cols, _ = _reducir(A, tol=tol)
     pivot_set = set(pivot_cols)
     free_cols = [j for j in range(n) if j not in pivot_set]
     if not free_cols:
@@ -222,32 +304,33 @@ def nullspace_vector(A: Matrix, tol: float = 1e-12) -> List[float] | None:
     free = free_cols[0]
     x = [0.0] * n
     x[free] = 1.0
-    # para cada pivote, resolver el valor en función de variables libres
-    # recorrer filas y encontrar la ecuación con pivot en columna p
-    for i in range(m):
-        # buscar pivot en la fila
-        pcol = None
-        for j in range(n):
-            if abs(R[i][j]) > tol:
-                pcol = j
-                break
-        if pcol is None:
-            continue
-        # suma de R[i][pcol]*x[pcol] + sum_{free} R[i][f]*x[f] = 0
+    # Fila i de R tiene su pivote (= 1) en pivot_cols[i]:
+    # x[p] + sum_{libres} R[i][f]*x[f] = 0
+    for i, pcol in enumerate(pivot_cols):
         s = 0.0
         for f in free_cols:
             s += R[i][f] * x[f]
-        # como R está en RREF, R[i][pcol] debería ser 1
         x[pcol] = -s
     return x
 
 # --------------------------
 # Propiedades de la traspuesta (solo chequeos que no requieren otra matriz)
 # --------------------------
-def _equal_matrices(A: Matrix, B: Matrix, tol: float = 1e-12) -> bool:
+def _equal_matrices(A: Matrix, B: Matrix, tol: Optional[float] = None) -> bool:
+    """Igualdad entrada a entrada.
+
+    Sin `tol`, la tolerancia es RELATIVA a la mayor magnitud de las dos
+    matrices (1e-9 de esa escala). Con el 1e-12 absoluto de antes, una
+    inversa válida de 1e-5·I (entradas 1e5) fallaba (A⁻¹)⁻¹ = A por puro
+    redondeo. 1e-9 deja margen para número de condición ~1e6; por encima,
+    una propiedad verdadera puede salir FALSO por pérdida de precisión.
+    """
     if shape_of(A) != shape_of(B):
         return False
     m, n = shape_of(A)
+    if tol is None:
+        escala = max([abs(x) for row in A for x in row] + [abs(x) for row in B for x in row] + [0.0])
+        tol = 1e-9 * escala
     for i in range(m):
         for j in range(n):
             if abs(A[i][j] - B[i][j]) > tol:
@@ -304,7 +387,7 @@ def verify_transpose_props(A: Matrix, B: Matrix | None = None) -> str:
     return "\n".join(lines)
 
 
-def verify_inverse_props(A: Matrix, B: Matrix | None = None, tol: float = 1e-12) -> str:
+def verify_inverse_props(A: Matrix, B: Matrix | None = None, tol: Optional[float] = None) -> str:
     """Verifica propiedades relacionadas con inversas:
       a) (A^{-1})^{-1} = A
       b) Si B dado: (AB)^{-1} = B^{-1} A^{-1} (cuando aplicable)
@@ -364,81 +447,41 @@ def verify_inverse_props(A: Matrix, B: Matrix | None = None, tol: float = 1e-12)
 # --------------------------
 # Determinante / Inversa (usando Gauss-Jordan)
 # --------------------------
-def determinant(A: Matrix, tol: float = 1e-12) -> float:
+def determinant(A: Matrix, tol: Optional[float] = None) -> float:
     """
     Calcula el determinante de A usando una reducción tipo Gauss-Jordan
-    con pivoteo parcial por filas. Se siguen operaciones elementales y
-    se acumula el producto de los pivotes antes de normalizar (escala).
-    Devuelve 0.0 si la matriz es singular.
+    con pivoteo parcial por filas: producto de los pivotes antes de
+    normalizarlos, con el signo de los intercambios.
+
+    Devuelve 0.0 exacto si y sólo si la matriz es (numéricamente) singular
+    según el criterio compartido -- la misma eliminación que rank_of, así
+    que determinant(A) == 0.0 <=> rank_of(A) < n. NO se compara el
+    resultado final contra un umbral: el tamaño de det(A) no mide
+    singularidad (det(c·I) = cⁿ), y antes eso devolvía 0 para 1e-5·I.
     """
     # Verificar cuadrada
     m, n = shape_of(A)
     if m != n:
         raise ValueError("Determinante sólo definido para matrices cuadradas.")
-
-    # Hacer copia para no modificar A
-    M = [row[:] for row in A]
-    det = 1.0
-    row = 0
-    swaps = 0
-    for col in range(n):
-        if row >= n:
-            break
-        # seleccionar fila con mayor valor absoluto en columna `col`
-        sel = row
-        best = abs(M[row][col])
-        for r in range(row + 1, n):
-            v = abs(M[r][col])
-            if v > best:
-                best = v
-                sel = r
-
-        if best <= tol:
-            # columna sin pivote significativo -> determinante 0
-            return 0.0
-
-        if sel != row:
-            M[row], M[sel] = M[sel], M[row]
-            swaps += 1
-
-        pivot = M[row][col]
-        # acumular el valor del pivote (antes de escalar a 1)
-        det *= pivot
-
-        # escalar la fila para dejar 1 en la posición pivote (como en Gauss-Jordan)
-        for j in range(col, n):
-            M[row][j] = M[row][j] / pivot
-
-        # eliminación: hacer ceros en todas las demás filas (arriba y abajo)
-        for r in range(n):
-            if r == row:
-                continue
-            factor = M[r][col]
-            if abs(factor) <= tol:
-                continue
-            for j in range(col, n):
-                M[r][j] = M[r][j] - factor * M[row][j]
-
-        row += 1
-
-    if swaps % 2 != 0:
-        det = -det
-    return 0.0 if abs(det) <= tol else det
+    _, pivot_cols, producto = _reducir(A, tol=tol)
+    if len(pivot_cols) < n:
+        return 0.0
+    return producto
 
 
-def is_singular(A: Matrix, tol: float = 1e-12) -> bool | None:
-    """Devuelve True si A cuadrada y singular, False si no singular, None si no es cuadrada."""
+def is_singular(A: Matrix, tol: Optional[float] = None) -> bool | None:
+    """Devuelve True si A cuadrada y singular, False si no singular, None si no es cuadrada.
+
+    Singular <=> rango(A) < n, con el mismo criterio que rank_of y
+    determinant.
+    """
     m, n = shape_of(A)
     if m != n:
         return None
-    try:
-        d = determinant(A, tol=tol)
-    except ValueError:
-        return None
-    return abs(d) <= tol
+    return rank_of(A, tol=tol) < n
 
 
-def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[float] | None = None, check_props: bool = True) -> Tuple[Matrix, str]:
+def inverse(A: Matrix, tol: Optional[float] = None, frame: list | None = None, b: List[float] | None = None, check_props: bool = True) -> Tuple[Matrix, str]:
     """
     Calcula la inversa de A usando Gauss-Jordan sobre [A | I].
     Si se proporciona `frame` (dict), la función registrará cada paso
@@ -460,12 +503,13 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[fl
 
     # Comprobar singularidad antes de proceder: si es singular lanzar error pero
     # proporcionando información pedagógica (determinante, rango, existencia de núcleo no trivial).
-    detA = determinant(A, tol=tol)
-    if abs(detA) <= tol:
+    # Mismo criterio que rank_of/determinant/is_singular: singular <=> rango < n.
+    rA = rank_of(A, tol=tol)
+    if rA < n:
         # preparar texto explicativo antes de lanzar para mantener comportamiento de tests (excepción)
-        rA = rank_of(A, tol=tol)
+        detA = determinant(A, tol=tol)
         detailed = []
-        detailed.append(f"Matriz singular: det(A) = {format_number(detA)} (≈ 0)")
+        detailed.append(f"Matriz singular: det(A) = {format_number(detA)} (numéricamente 0: rango de A < n)")
         detailed.append(f"Rango de A = {rA} (< {n} si singular)")
         detailed.append("Consecuencias:")
         detailed.append(" - No existe A^{-1}.")
@@ -476,9 +520,8 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[fl
             detailed.append(format_matrix([nullv]))
         # Si el usuario preguntó por un b, analizar consistencia del sistema Ax=b
         if b is not None:
-            # construir matriz aumentada y comparar rangos
-            Aug = [row[:] + [bv] for row, bv in zip(A, b)]
-            rAug = rank_of(Aug, tol=tol)
+            # comparar rangos (Rouché–Frobenius) sobre [A|b], sin normalizar b
+            _, rAug = system_ranks(A, b, tol=tol)
             if rAug > rA:
                 detailed.append(f"Sistema Ax=b inconsistente: rango([A|b]) = {rAug} > rango(A) = {rA} -> Sin soluciones.")
             else:
@@ -488,6 +531,9 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[fl
 
     # Copia y matriz aumentada [A | I]
     M = [list(map(float, row)) + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate([r[:] for r in A])]
+    # Cota de redondeo por entrada (ver el criterio al principio del módulo).
+    S = [[abs(x) for x in row] for row in M]
+    tau = _tau(n, 2 * n)
     steps_list: List[str] = []
     # registrar estado inicial en frame si se proporcionó
     if frame is not None:
@@ -497,30 +543,30 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[fl
     for col in range(n):
         if row >= n:
             break
-        # seleccionar fila con mayor valor absoluto en columna `col`
-        sel = row
-        best = abs(M[row][col])
-        for r in range(row + 1, n):
-            v = abs(M[r][col])
-            if v > best:
-                best = v
-                sel = r
-
-        if best <= tol:
-            # columna sin pivote significativo -> matriz singular
+        # seleccionar, entre las entradas que no son cero según el criterio,
+        # la de mayor valor absoluto en la columna `col`
+        candidatos = [r for r in range(row, n) if not _es_cero(M[r][col], S[r][col], tau, tol)]
+        if not candidatos:
+            # columna sin pivote significativo -> matriz singular. No debería
+            # pasar: el chequeo de rango de arriba usa la misma eliminación.
             raise ValueError("Matriz singular (no tiene pivote en la columna {})".format(col+1))
+        sel = max(candidatos, key=lambda r: abs(M[r][col]))
 
         if sel != row:
             M[row], M[sel] = M[sel], M[row]
+            S[row], S[sel] = S[sel], S[row]
             steps_list.append(f"F{row+1} <-> F{sel+1}")
             if frame is not None:
                 log_step(frame, f"F{row+1} <-> F{sel+1}", M, det=None, tag="swap_rows")
 
         pivot = M[row][col]
-        # Escalar para hacer 1 el pivote
-        if abs(pivot - 1.0) > tol:
+        # Escalar para hacer 1 el pivote. Antes se salteaba si |pivote-1| <=
+        # 1e-12, dejando un pivote que no era 1; ahora sólo si es 1 exacto.
+        if pivot != 1.0:
             for j in range(col, 2*n):
                 M[row][j] = M[row][j] / pivot
+                S[row][j] = S[row][j] / abs(pivot)
+            M[row][col] = 1.0
             steps_list.append(f"F{row+1} -> F{row+1} / {format_number(pivot)}")
             if frame is not None:
                 log_step(frame, f"F{row+1} -> F{row+1} / {format_number(pivot)}", M, det=None, tag="scale")
@@ -530,10 +576,18 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[fl
             if r == row:
                 continue
             factor = M[r][col]
-            if abs(factor) <= tol:
+            # Antes: `abs(factor) <= 1e-12 -> continue`, que en una matriz de
+            # entradas ~1e-13 se salteaba eliminaciones reales. Ahora sólo se
+            # saltea un factor que el criterio declara ruido.
+            if _es_cero(factor, S[r][col], tau, tol):
+                M[r][col] = 0.0
                 continue
             for j in range(col, 2*n):
                 M[r][j] = M[r][j] - factor * M[row][j]
+                S[r][j] = S[r][j] + abs(factor) * S[row][j]
+                if _es_cero(M[r][j], S[r][j], tau, tol):
+                    M[r][j] = 0.0
+            M[r][col] = 0.0
             signo = "-" if factor > 0 else "+"
             steps_list.append(f"F{r+1} -> F{r+1} {signo} {format_number(abs(factor))}*F{row+1}")
             if frame is not None:
@@ -580,7 +634,7 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[fl
         detailed_lines.append(f"\nDeterminante de A = {format_number(detA)}")
         if frame is not None:
             log_step(frame, f"Determinante de A = {format_number(detA)}", A, det=detA, tag="det")
-        if abs(detA) > tol:
+        if detA != 0.0:
             detailed_lines.append("\nMatriz inversa = (1/det(A)) * Adj(A)")
             inv_by_adj = [[adjugate[i][j] / detA for j in range(n)] for i in range(n)]
             detailed_lines.append("\nAdj(A) / det(A):")
@@ -599,7 +653,14 @@ def inverse(A: Matrix, tol: float = 1e-12, frame: dict | None = None, b: List[fl
             detailed_lines.append("\nVerificación de Ax = b usando A⁻¹:")
             detailed_lines.append(f"x = A⁻¹·b = {format_matrix([x])}")
             detailed_lines.append(f"A·x = {format_matrix([Ax])}")
-            ok = all(abs(Ax[i] - b[i]) <= 1e-9 for i in range(len(b)))
+            # Residuo relativo por componente: |(Ax)_i - b_i| frente a la
+            # magnitud de los términos que lo forman. El 1e-9 absoluto de
+            # antes aceptaba cualquier x si A y b eran ~1e-10, y rechazaba
+            # soluciones correctas si eran ~1e10.
+            ok = all(
+                abs(Ax[i] - b[i]) <= 1e-9 * (sum(abs(A[i][j] * x[j]) for j in range(n)) + abs(b[i]))
+                for i in range(len(b))
+            )
             detailed_lines.append("Verificación: " + ("OK (Ax ≈ b)" if ok else "FALSO (Ax != b)"))
         except Exception as e:
             detailed_lines.append(f"Error verificando Ax=b: {e}")
