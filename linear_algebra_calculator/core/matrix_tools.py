@@ -1,6 +1,8 @@
 # utils/matrix_tools.py
 from __future__ import annotations
+import math
 import sys
+import warnings
 from typing import List, Optional, Tuple
 from utils.EquationFunctions import format_number
 from utils.printMethods import format_matrix
@@ -216,16 +218,22 @@ def _reducir(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, List[int],
     - producto_de_pivotes: producto de los pivotes ANTES de normalizarlos,
       con el signo de los intercambios. Si A es cuadrada y de rango completo
       es det(A); si no, no significa nada y quien lo use debe mirar el rango.
+      Se acumula como mantisa y exponente (math.frexp) y se arma recién al
+      final: multiplicar de a uno subdesbordaba con diag(1e-200, 1e-200,
+      1e300) aunque det = 1e-100 es representable. Si el producto FINAL no
+      es representable, queda 0.0 (subdesborda) o ±inf (desborda).
 
     Es la única eliminación detrás de rank_of, determinant e is_singular, así
-    que los tres no pueden discrepar entre sí sobre si algo es cero.
+    que los tres no pueden discrepar sobre qué columnas tienen pivote (es
+    decir, sobre la singularidad). El VALOR del determinante es otra cosa:
+    puede no ser representable aunque haya n pivotes (ver determinant).
     """
     M = [[float(x) for x in row] for row in A]
     m, n = shape_of(M)
     S = [[abs(x) for x in row] for row in M]
     tau = _tau(m, n)
     pivot_cols: List[int] = []
-    producto = 1.0
+    mantisa, exponente = 1.0, 0
     row = 0
     for col in range(n):
         if row >= m:
@@ -240,9 +248,11 @@ def _reducir(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, List[int],
         if sel != row:
             M[row], M[sel] = M[sel], M[row]
             S[row], S[sel] = S[sel], S[row]
-            producto = -producto
+            mantisa = -mantisa
         pivot = M[row][col]
-        producto *= pivot
+        m_piv, e_piv = math.frexp(pivot)
+        mantisa, e_norm = math.frexp(mantisa * m_piv)
+        exponente += e_piv + e_norm
         # escalar fila (la cota relativa se escala igual)
         for j in range(col, n):
             M[row][j] = M[row][j] / pivot
@@ -263,6 +273,10 @@ def _reducir(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, List[int],
             M[r][col] = 0.0
         pivot_cols.append(col)
         row += 1
+    try:
+        producto = math.ldexp(mantisa, exponente)
+    except OverflowError:
+        producto = math.copysign(math.inf, mantisa)
     return M, pivot_cols, producto
 
 def _rref_matrix(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, int]:
@@ -453,11 +467,22 @@ def determinant(A: Matrix, tol: Optional[float] = None) -> float:
     con pivoteo parcial por filas: producto de los pivotes antes de
     normalizarlos, con el signo de los intercambios.
 
-    Devuelve 0.0 exacto si y sólo si la matriz es (numéricamente) singular
-    según el criterio compartido -- la misma eliminación que rank_of, así
-    que determinant(A) == 0.0 <=> rank_of(A) < n. NO se compara el
-    resultado final contra un umbral: el tamaño de det(A) no mide
-    singularidad (det(c·I) = cⁿ), y antes eso devolvía 0 para 1e-5·I.
+    Usa la misma eliminación que rank_of, y NO compara el resultado final
+    contra ningún umbral: el tamaño de det(A) no mide singularidad
+    (det(c·I) = cⁿ), y antes eso devolvía 0 para 1e-5·I. Casos:
+
+    - rango(A) < n (numéricamente singular)  -> 0.0 exacto.
+    - rango(A) = n y det representable        -> el producto de los pivotes,
+      por chico o grande que sea (1e-15, 1e-100...).
+    - rango(A) = n y det NO representable en un double (|det| fuera de
+      ~[5e-324, 1.8e308]; p. ej. 1e-110·I₃ da 1e-330) -> 0.0 por
+      subdesbordamiento o ±inf por desbordamiento, y un RuntimeWarning.
+
+    Por eso "determinant(A) == 0.0" NO equivale a "A es singular": implica
+    singular sólo si el valor es representable. Para decidir singularidad
+    se usa is_singular(A) / rank_of(A), que no dependen del rango de
+    exponentes de la coma flotante. Se mantiene el tipo de retorno (float)
+    para no cambiar el contrato con quienes ya llaman a esta función.
     """
     # Verificar cuadrada
     m, n = shape_of(A)
@@ -466,14 +491,23 @@ def determinant(A: Matrix, tol: Optional[float] = None) -> float:
     _, pivot_cols, producto = _reducir(A, tol=tol)
     if len(pivot_cols) < n:
         return 0.0
+    if producto == 0.0 or math.isinf(producto):
+        warnings.warn(
+            "A es invertible (rango completo) pero det(A) no es representable en coma "
+            f"flotante: se devuelve {producto} por {'subdesbordamiento' if producto == 0.0 else 'desbordamiento'}. "
+            "Para decidir singularidad usá is_singular(A) o rank_of(A).",
+            RuntimeWarning, stacklevel=2,
+        )
     return producto
 
 
 def is_singular(A: Matrix, tol: Optional[float] = None) -> bool | None:
     """Devuelve True si A cuadrada y singular, False si no singular, None si no es cuadrada.
 
-    Singular <=> rango(A) < n, con el mismo criterio que rank_of y
-    determinant.
+    Singular <=> rango(A) < n, con el mismo criterio de pivotes que
+    rank_of y determinant. Es la función a usar para decidir singularidad:
+    determinant(A) puede valer 0.0 en una matriz invertible si |det(A)|
+    subdesborda (no es representable en un double).
     """
     m, n = shape_of(A)
     if m != n:
@@ -611,11 +645,17 @@ def inverse(A: Matrix, tol: Optional[float] = None, frame: list | None = None, b
         return [[B[r][c] for c in range(len(B)) if c != jj] for r in range(len(B)) if r != ii]
 
     cofactors = [[0.0 for _ in range(n)] for _ in range(n)]
-    for i in range(n):
-        for j in range(n):
-            minor = _minor_matrix(A, i, j)
-            det_minor = determinant(minor) if minor else 1.0
-            cofactors[i][j] = ((-1) ** (i + j)) * det_minor
+    # Llegar acá implica rango completo. Si algún determinante (de A o de un
+    # menor) no es representable en coma flotante, determinant() avisa con
+    # RuntimeWarning; acá se captura y se dice en el texto, en vez de
+    # mostrar "det(A) = 0" de una matriz invertible.
+    with warnings.catch_warnings(record=True) as avisos_cofactores:
+        warnings.simplefilter("always", RuntimeWarning)
+        for i in range(n):
+            for j in range(n):
+                minor = _minor_matrix(A, i, j)
+                det_minor = determinant(minor) if minor else 1.0
+                cofactors[i][j] = ((-1) ** (i + j)) * det_minor
 
     adjugate = [[cofactors[j][i] for j in range(n)] for i in range(n)]
 
@@ -630,11 +670,27 @@ def inverse(A: Matrix, tol: Optional[float] = None, frame: list | None = None, b
         log_step(frame, "Matriz adjunta (Adj(A) = C^T)", adjugate, det=None, tag="adjugate")
 
     try:
-        detA = determinant(A)
-        detailed_lines.append(f"\nDeterminante de A = {format_number(detA)}")
-        if frame is not None:
-            log_step(frame, f"Determinante de A = {format_number(detA)}", A, det=detA, tag="det")
-        if detA != 0.0:
+        with warnings.catch_warnings():
+            warnings.simplefilter("ignore", RuntimeWarning)
+            detA = determinant(A)
+        if detA == 0.0 or math.isinf(detA):
+            # rango completo (si no, se habría lanzado arriba): no es singular,
+            # es que |det(A)| no entra en un double.
+            texto_det = ("Determinante de A: no representable en coma flotante "
+                         f"({'subdesborda a 0' if detA == 0.0 else 'desborda a infinito'}); "
+                         "A es invertible (rango completo)")
+            detailed_lines.append("\n" + texto_det)
+            if frame is not None:
+                log_step(frame, texto_det, A, det=None, tag="det")
+        else:
+            detailed_lines.append(f"\nDeterminante de A = {format_number(detA)}")
+            if frame is not None:
+                log_step(frame, f"Determinante de A = {format_number(detA)}", A, det=detA, tag="det")
+        if avisos_cofactores:
+            detailed_lines.append("(Algún cofactor no es representable en coma flotante a esta escala: "
+                                  "la matriz de cofactores y Adj(A)/det(A) no son confiables; "
+                                  "A⁻¹ por Gauss-Jordan sí.)")
+        if detA != 0.0 and not math.isinf(detA) and not avisos_cofactores:
             detailed_lines.append("\nMatriz inversa = (1/det(A)) * Adj(A)")
             inv_by_adj = [[adjugate[i][j] / detA for j in range(n)] for i in range(n)]
             detailed_lines.append("\nAdj(A) / det(A):")
