@@ -396,5 +396,47 @@ class TestDeterminanteNoRepresentableEnGaussJordan(unittest.TestCase):
         self.assertTrue(residuo_ok(A, r['solution'], producto(A, [1, 2, 3])))
 
 
+class TestRangosConCoeficientesChicosYbGrande(unittest.TestCase):
+    """Regresión del comentario de revisión (Codex) en el PR #4.
+
+    A = [[1e-13, 0], [0, 0]], b = (1, 0): x1 = 1e13, x2 libre -> infinitas.
+    Con la tolerancia ABSOLUTA 1e-12 que todavía tenía la rama de Cramer,
+    rank_of(A) descartaba el 1e-13 (rango 0) mientras rank_of([A|b])
+    conservaba el pivote de b (rango 1), y Cramer clasificaba
+    "inconsistent". Con el criterio de cero por cota de redondeo (y
+    system_ranks, que saca los dos rangos de una sola eliminación sin
+    normalizar b) todos los métodos dan "infinite".
+    """
+
+    CASOS = [
+        ([[1e-13, 0.0], [0.0, 0.0]], [1.0, 0.0], 1),
+        ([[1e-13, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], [1.0, 0.0, 0.0], 1),
+        ([[1e-13, 1e-13], [1e-13, 1e-13]], [1.0, 1.0], 1),
+    ]
+
+    def test_todos_los_metodos_dan_infinitas(self):
+        client = APIClient()
+        for A, b, rango in self.CASOS:
+            with self.subTest(A=A, b=b):
+                self.assertEqual(mt.system_ranks(A, b), (rango, rango))
+                self.assertEqual(CramerMethod(copy.deepcopy(A), list(b)).solve()['status'], 'infinite')
+                for resolver in (resolver_gauss, resolver_gj):
+                    _, r = resolver(A, b)
+                    self.assertEqual(r['status'], 'infinite')
+                    self.assertEqual(r['rank'], rango)
+                    self.assertTrue(residuo_ok(A, r['solution'], b))
+                for metodo in ('cramer', 'gauss', 'gauss-jordan'):
+                    resp = client.post('/api/v1/matrix/reduce', {'method': metodo, 'A': A, 'b': b}, format='json')
+                    self.assertEqual(resp.status_code, 200, resp.data)
+                    self.assertEqual(resp.data['summary']['status'], 'infinite')
+
+    def test_el_paso_de_rangos_de_cramer_lo_registra(self):
+        c = CramerMethod([[1e-13, 0.0], [0.0, 0.0]], [1.0, 0.0])
+        c.solve()
+        paso = [st['text'] for st in c.frame if st['tag'] == 'rank_check']
+        self.assertEqual(len(paso), 1)
+        self.assertIn('rango(A) = 1, rango([A|b]) = 1', paso[0])
+
+
 if __name__ == '__main__':
     unittest.main()
