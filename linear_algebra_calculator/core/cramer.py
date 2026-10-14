@@ -1,4 +1,5 @@
 from core.matrix import Matrix
+from core.matrix_tools import rank_of
 from typing import Any, Dict, List, Optional
 from utils.printMethods import log_step
 from utils.EquationFunctions import format_number, num_to_sub
@@ -9,6 +10,12 @@ class CramerMethod(Matrix):
     """
     Resuelve sistemas de ecuaciones lineales usando determinantes.
     Funciona para cualquier cantidad de variables definida por el usuario.
+
+    La regla de Cramer resuelve el caso det(A) ≠ 0 (solución única). Con
+    det(A) = 0 sólo sirve en una dirección: si algún det(Aᵢ) ≠ 0 el sistema
+    es inconsistente. Si todos los det(Aᵢ) son 0 la regla no decide, y la
+    clasificación la hace un procedimiento auxiliar que no es Cramer: el
+    análisis de rangos de Rouché–Frobenius (ver `_clasificar_por_rangos`).
     """
     
     def __init__(self, matriz: List[List[float]], b: List[float]) -> None:
@@ -199,12 +206,13 @@ class CramerMethod(Matrix):
     def solve(self)->Dict[str,Any]:
         """
         Resuelve el sistema de ecuaciones.
-        
+
         Returns:
-            list: Solución del sistema [x₁, x₂, ..., xₙ]
-            
-        Raises:
-            ValueError: Si el sistema no tiene solución única
+            dict con 'status' ('unique' | 'inconsistent' | 'infinite'),
+            'solution' (lista [x₁, ..., xₙ] o None si no hay solución única),
+            'basic_vars', 'free_vars' y 'determinant' (det(A)).
+
+        No levanta excepción cuando det(A) = 0: lo informa en 'status'.
         """
         self.frame = []
         self.solution = None
@@ -245,16 +253,20 @@ class CramerMethod(Matrix):
             return result
         
         
-        # Si detA == 0 -> inconsistente
+        # detA == 0 -> no hay solucion unica. Queda distinguir inconsistente
+        # de infinitas. Los det(Ai) se calculan igual: si el sistema fuera
+        # compatible con solucion x, b = sum(xj * aj) y, por multilinealidad,
+        # det(Ai) = xi * det(A) = 0 para todo i. Por contrarreciproca, algun
+        # det(Ai) != 0 PRUEBA que el sistema es inconsistente.
         detC_values = []
         for col in range(self.n_variables):
             C = self.create_cramer_matrix(col)
             detC = self.calculate_determinant(C, show_sarrus=(self.n_variables == 3))
             detC_values.append(detC)
             log_step(self.frame, f"Matriz de Cramer para x{num_to_sub(col+1)}", C,det=format_number(detC), tag=f"cramer_check_x{col+1}")
-            
+
         if any(not isclose(v, 0.0, abs_tol=self.tolerance) for v in detC_values):
-            log_step(self.frame, "Determinantes de Cramer no todos cero -> sistema inconsistente", self.matrix_A, det=format_number(detA), tag="inconsistent")
+            log_step(self.frame, "det(A) = 0 y algún det(Aᵢ) ≠ 0 -> sistema inconsistente", self.matrix_A, det=format_number(detA), tag="inconsistent")
             result = {
             'status': 'inconsistent',
             'solution': None,
@@ -269,12 +281,17 @@ class CramerMethod(Matrix):
             }
             return result
 
-        # Si no se cumplieron las demas, indica que detA == 0 y todos detC == 0 -> infinitas soluciones
-        log_step(self.frame, "Determinante de Cramer todos cero -> infinitas soluciones", self.matrix_A, det=format_number(detA), tag="infinite")
-
+        # detA == 0 y todos los det(Ai) == 0: la implicacion de arriba NO
+        # tiene vuelta, asi que la regla de Cramer no decide. Antes esta rama
+        # concluia "infinitas soluciones" sin mas, y eso es falso: con A = 0
+        # y b = (1, 0, 0) los n+1 determinantes valen 0 y el sistema dice
+        # 0 = 1. (Con rango(A) = n-1 el criterio si alcanzaria; falla cuando
+        # rango(A) <= n-2, que en 2x2 es solo A = 0 y en 3x3 ya incluye
+        # rango 1.) La clasificacion pasa a un procedimiento auxiliar.
+        status = self._clasificar_por_rangos()
 
         result = {
-            'status': 'infinite',
+            'status': status,
             # Antes era el literal 'Crammer' (con una eme de mas): no una
             # solucion, el nombre del metodo. Sin solucion unica no hay
             # particular que mostrar -- None, igual que la rama
@@ -283,8 +300,9 @@ class CramerMethod(Matrix):
             'solution': None,
             # Mismo motivo que en la rama 'inconsistent': con infinitas
             # soluciones SI hay variables libres -- justo lo contrario de
-            # "todas basicas". Cramer no las identifica (eso lo hace Gauss),
-            # asi que no se declara ninguna basica en vez de fingir que se
+            # "todas basicas". El analisis de rangos dice CUANTAS son
+            # (n - rango(A)) pero no CUALES; identificarlas es trabajo de
+            # Gauss, asi que no se declara ninguna en vez de fingir que se
             # identificaron.
             'basic_vars': [],
             'free_vars': [],
@@ -292,7 +310,59 @@ class CramerMethod(Matrix):
         }
         return result
 
-    
+    #-----------------------
+    # Clasificacion auxiliar (no es la regla de Cramer)
+    #-----------------------
+    def _clasificar_por_rangos(self) -> str:
+        """
+        Clasifica un sistema con det(A) = 0 y todos los det(Aᵢ) = 0, el
+        único caso que la regla de Cramer no puede decidir.
+
+        Usa el teorema de Rouché–Frobenius: Ax = b es compatible si y sólo
+        si rango(A) = rango([A|b]). Como det(A) = 0 implica rango(A) < n,
+        compatible significa infinitas soluciones.
+
+        No es Cramer: es eliminación por filas sobre la matriz aumentada
+        (`core.matrix_tools.rank_of`, el mismo motor de rango que usa
+        matrix/properties). Se registra en el frame como un paso aparte,
+        con la matriz [A|b], para que el procedimiento muestre que la
+        conclusión no salió de los determinantes.
+        """
+        n = self.n_variables
+        aumentada = [list(row) + [bi] for row, bi in zip(self.matrix_A, self.vector_b)]
+        rango_a = rank_of(self.matrix_A, tol=self.tolerance)
+        rango_ab = rank_of(aumentada, tol=self.tolerance)
+
+        log_step(
+            self.frame,
+            "det(A) = 0 y todos los det(Aᵢ) = 0: la regla de Cramer no decide "
+            "(el sistema puede ser inconsistente o tener infinitas soluciones). "
+            f"Se compara por rangos (Rouché–Frobenius): rango(A) = {rango_a}, rango([A|b]) = {rango_ab}",
+            aumentada, det=None, tag="rank_check",
+        )
+
+        if rango_ab > rango_a:
+            log_step(
+                self.frame,
+                f"rango(A) = {rango_a} < rango([A|b]) = {rango_ab} -> sistema inconsistente",
+                aumentada, det=None, tag="inconsistent",
+            )
+            return 'inconsistent'
+
+        # rango_a == rango_ab. Con det(A) = 0, rango(A) < n: infinitas.
+        # (Si la tolerancia absoluta de det(A) y la de rank_of discreparan y
+        # rango_a llegara a n, no estariamos en esta rama por un det(A)
+        # genuinamente nulo; ver la limitacion documentada en
+        # documentation/CramerMethod.md.)
+        log_step(
+            self.frame,
+            f"rango(A) = rango([A|b]) = {rango_a} < {n} -> infinitas soluciones "
+            f"({n - rango_a} parámetro(s) libre(s))",
+            aumentada, det=None, tag="infinite",
+        )
+        return 'infinite'
+
+
     def verify_solution(self, log: bool = True)->Dict[str, Any]:
         """
         Verifica que la solución encontrada satisfaga todas las ecuaciones.
