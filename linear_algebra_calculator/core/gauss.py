@@ -14,8 +14,22 @@ Pivoteo parcial POR FILAS. No se intercambian columnas: hacerlo permuta las
 variables y aquí no hay forma de deshacer esa permutación al presentar la
 solución. Ver el commit que unificó este archivo para la evidencia.
 
+Criterio de "es cero": el de core/matrix_tools.py (cota de redondeo por
+entrada, ver documentation/CriterioNumerico.md), llevado en paralelo con
+CotasDeRedondeo. La eliminación deja el ruido en 0.0 exacto y
+solve_from_upper analiza la matriz sin umbral propio. Antes era 1e-13
+absoluto.
+
+La eliminación SIEMPRE se completa. Antes, si [A|b] era cuadrada (A de
+m×(m-1)) y tenía una fila/columna nula o dos filas/columnas iguales, se
+cortaba antes de eliminar y el análisis leía la matriz sin reducir: un
+sistema 3×2 con dos ecuaciones repetidas y solución única salía
+"infinitas". Una matriz singular no dice si el sistema es incompatible o
+indeterminado; eso sólo lo dice la eliminación completa.
+
 Dependencias (internas)
 - core.matrix.Matrix
+- core.matrix_tools (CotasDeRedondeo)
 - core.system_solver.gauss_solver (analyze_argumented, solve_from_upper)
 - utils.printMethods (log_step)
 
@@ -23,10 +37,11 @@ El runner interactivo vive en cli.method_runners; aquí no se imprime nada.
 """
 
 from core.matrix import Matrix
-from math import isclose
 import copy
+import math
 from typing import Any, Dict, List, Optional, Tuple
 
+from core.matrix_tools import CotasDeRedondeo
 from core.system_solver.gauss_solver import solve_from_upper, analyze_argumented
 from utils.printMethods import log_step
 
@@ -47,103 +62,117 @@ class GaussMethod(Matrix):
             self.is_augmented = False
             self.A = copy.deepcopy(matriz)
             self.b = None
-        self.determinante:float = 1.0
+        # det(A) cuando A es cuadrada (se llena en gauss_method); None si no.
+        self.determinante: Optional[float] = None
+        # Se conserva por compatibilidad; ya no decide nada (ver CotasDeRedondeo).
         self.tolerance = 1e-13 # Notacion cientifica
         self.frame: List[Dict[str, Any]] = []
         self.pivots: List[Tuple[int,int]] = []
         self.analize: Dict[str, Any] = {}
+        self._cotas: Optional[CotasDeRedondeo] = None
+        self._signo: float = 1.0
+
+    # ----------------------
+    # Forma de A (no de [A|b])
+    # ----------------------
+    def _n_incognitas(self) -> int:
+        return self.columnas - 1 if self.is_augmented else self.columnas
+
+    def _a_es_cuadrada(self) -> bool:
+        """A es n×n. Antes se comparaba filas == columnas de la AUMENTADA,
+        que es m×(n+1): para un sistema cuadrado nunca se cumplía, y sí para
+        A de m×(m-1)."""
+        return self.filas == self._n_incognitas()
+
+    # ----------------------
+    # Eliminación hacia adelante (única, compartida)
+    # ----------------------
+    def _eliminar_hacia_adelante(self) -> List[Tuple[int, int]]:
+        aug = self.matriz
+        m = len(aug)
+        if m == 0:
+            self.pivots = []
+            return []
+        n = len(aug[0]) - 1
+        self._cotas = CotasDeRedondeo(aug)
+        cotas = self._cotas
+        row = 0
+        pivots: List[Tuple[int,int]] = []
+        for col in range(n):
+            if row >= m:
+                break
+            candidatos = [r for r in range(row, m)
+                          if aug[r][col] != 0.0 and not cotas.es_cero(aug[r][col], r, col)]
+            if not candidatos:
+                # Lo que quede en la columna es ruido de redondeo: 0 exacto.
+                for r in range(row, m):
+                    aug[r][col] = 0.0
+                log_step(self.frame, f"No hay pivote significativo en la columna {col+1}", aug, det=None, tag="no_pivot")
+                continue
+            sel = max(candidatos, key=lambda r: abs(aug[r][col]))
+            if sel != row:
+                self.swipe_rows(row, sel)
+            pivots.append((row, col))
+            pivot_val = aug[row][col]
+            log_step(self.frame, f"Pivote en A[{row+1},{col+1}] = {format_number(pivot_val)}", aug, det=None, tag="pivot")
+            for r in range(row + 1, m):
+                if aug[r][col] == 0.0:
+                    continue
+                if cotas.es_cero(aug[r][col], r, col):
+                    aug[r][col] = 0.0
+                    continue
+                factor = aug[r][col] / pivot_val
+                for c in range(col, n + 1):
+                    aug[r][c] -= factor * aug[row][c]
+                cotas.restar(r, row, factor, desde=col)
+                aug[r][col] = 0.0
+                for c in range(col + 1, n + 1):
+                    if cotas.es_cero(aug[r][c], r, c):
+                        aug[r][c] = 0.0
+                log_step(self.frame, f"F{r+1} -> F{r+1} - ({format_number(factor)})*F{row+1}", aug, det=None, tag="elim")
+            row += 1
+        self.matriz = aug
+        self.filas = len(aug)
+        self.columnas = len(aug[0]) if aug else 0
+        self.pivots = pivots
+        return pivots
 
     def gauss_method(self) -> List[Dict[str, Any]]:
         # Unifica el registro de pasos y la lógica de resolución, como en Gauss-Jordan
         self.frame = []
-        self.determinante = 1.0
+        self.determinante = None
+        self._signo = 1.0
         if not getattr(self, "is_augmented", False):
             raise RuntimeError("La instancia no contiene una matriz aumentada")
-        aug = self.matriz
-        m = len(aug)
-        if m == 0:
+        if len(self.matriz) == 0:
             return self.frame
-        n_plus_1 = len(aug[0])
-        n = n_plus_1 - 1
-        row = 0
-        pivots: List[Tuple[int,int]] = []
-        log_step(self.frame, "Matriz aumentada inicial", aug, det=None, tag="start")
-        # Chequeo de matriz singular antes de operar
-        if self.filas == self.columnas and self.null_determinant():
-            return self.frame
-        for col in range(n):
-            if row >= m:
-                break
-            sel = max(range(row, m), key=lambda r: abs(aug[r][col]))
-            if isclose(aug[sel][col], 0.0, abs_tol=self.tolerance):
-                log_step(self.frame, f"No hay pivote significativo en la columna {col+1}", aug, det=None, tag="no_pivot")
-                continue
-            if sel != row:
-                self.swipe_rows(row, sel)
-            pivots.append((row, col))
-            pivot_val = aug[row][col]
-            log_step(self.frame, f"Pivote en A[{row+1},{col+1}] = {format_number(pivot_val)}", aug, det=None, tag="pivot")
-            for r in range(row + 1, m):
-                if isclose(aug[r][col], 0.0, abs_tol=self.tolerance):
-                    continue
-                factor = aug[r][col] / pivot_val
-                for c in range(col, n + 1):
-                    aug[r][c] -= factor * aug[row][c]
-                    if isclose(aug[r][c], 0.0, abs_tol=self.tolerance):
-                        aug[r][c] = 0.0
-                log_step(self.frame, f"F{r+1} -> F{r+1} - ({format_number(factor)})*F{row+1}", aug, det=None, tag="elim")
-            row += 1
-        self.matriz = aug
-        self.filas = len(aug)
-        self.columnas = len(aug[0]) if aug else 0
-        self.pivots = pivots
+        log_step(self.frame, "Matriz aumentada inicial", self.matriz, det=None, tag="start")
+        # Atajos de singularidad sobre A: se registran como observación, pero
+        # NO cortan el procedimiento (ver el docstring del módulo).
+        if self._a_es_cuadrada():
+            self.null_determinant()
+        self._eliminar_hacia_adelante()
         log_step(self.frame, "Matriz aumentada triangular superior (U)", self.matriz, det=None, tag="upper")
-        if self.filas == self.columnas:
+        if self._a_es_cuadrada():
             self.determinant_result()
         return self.frame
 
     def fordward_elimination_aug(self) -> Tuple[List[List[float]], List[Tuple[int,int]]]:
+        # Antes era una copia de la eliminación de gauss_method con sus propias
+        # reglas; ahora es la misma eliminación, sin los pasos de determinante.
         if not getattr(self, "is_augmented", False):
             raise RuntimeError("La instancia no contiene una matriz aumentada")
-        aug = self.matriz
-        m = len(aug)
-        if m == 0:
-            return aug, []
-        n_plus_1 = len(aug[0])
-        n = n_plus_1 - 1
-        row = 0
-        pivots: List[Tuple[int,int]] = []
-        log_step(self.frame, "Matriz aumentada inicial", aug, det=None, tag="start")
-        for col in range(n):
-            if row >= m: break
-            sel = max(range(row, m), key=lambda r: abs(aug[r][col]))
-            if isclose(aug[sel][col], 0.0, abs_tol=self.tolerance):
-                log_step(self.frame, f"No hay pivote significativo en la columna {col+1}", aug, det=None, tag="no_pivot")
-                continue
-            if sel != row:
-                self.swipe_rows(row, sel)
-            pivots.append((row, col))
-            pivot_val = aug[row][col]
-            log_step(self.frame, f"Pivote en A[{row+1},{col+1}] = {format_number(pivot_val)}", aug, det=None, tag="pivot")
-            for r in range(row + 1, m):
-                if isclose(aug[r][col], 0.0, abs_tol=self.tolerance):
-                    continue
-                factor = aug[r][col] / pivot_val
-                for c in range(col, n + 1):
-                    aug[r][c] -= factor * aug[row][c]
-                    if isclose(aug[r][c], 0.0, abs_tol=self.tolerance):
-                        aug[r][c] = 0.0
-                log_step(self.frame, f"F{r+1} -> F{r+1} - ({format_number(factor)})*F{row+1}", aug, det=None, tag="elim")
-            row += 1
-        self.matriz = aug
-        self.filas = len(aug)
-        self.columnas = len(aug[0]) if aug else 0
-        self.pivots = pivots
+        if len(self.matriz) == 0:
+            return self.matriz, []
+        self._signo = 1.0
+        log_step(self.frame, "Matriz aumentada inicial", self.matriz, det=None, tag="start")
+        pivots = self._eliminar_hacia_adelante()
         log_step(self.frame, "Matriz aumentada triangular superior (U)", self.matriz, det=None, tag="upper")
         return self.matriz, pivots
 
     def solve_and_log(self) -> Dict[str, Any]:
-        # Solo analiza y resume, asume que gauss_method ya fue ejecutado
+        # Solo analiza y resume, asume que gauss_method ya fue ejecutado. Sin
+        # tolerancia: la eliminación ya dejó el ruido en 0.0 exacto.
         if not getattr(self, "is_augmented", False):
             raise RuntimeError("La instancia no contiene una matriz aumentada")
         result = solve_from_upper(self.matriz, pivots=self.pivots)
@@ -165,48 +194,75 @@ class GaussMethod(Matrix):
         return result
 
     def null_determinant(self) -> bool:
-        if self.filas != self.columnas:
+        """Atajos de singularidad sobre A (no sobre [A|b]): una fila o columna
+        nula, o dos filas o columnas iguales, implican det(A) = 0.
+
+        Sólo registra la observación y devuelve True/False: NO decide el tipo
+        de sistema. Con A singular el sistema puede ser incompatible o tener
+        infinitas soluciones, y eso lo distingue la eliminación, que sigue.
+        Comparación exacta: son datos de entrada, no resultados de cuentas.
+        """
+        if not self._a_es_cuadrada():
             return False
-        for row in range(self.filas):
-            if all(self.matriz[row][i]==0 for i in range(self.columnas)):
-                log_step(self.frame, f"Fila {row+1} son 0, su determinante es 0 (Matriz Singular)", self.matriz, det=0, tag="singular")
+        n = self._n_incognitas()
+        A = [fila[:n] for fila in self.matriz]
+        sigue = " No hay solución única; la eliminación continúa para distinguir infinitas soluciones de sistema incompatible."
+        for row in range(n):
+            if all(A[row][i] == 0 for i in range(n)):
+                log_step(self.frame, f"Fila {row+1} de A es nula: det(A) = 0 (A singular).{sigue}", self.matriz, det=0, tag="singular")
                 return True
-        for col in range(self.columnas):
-            if all(self.matriz[i][col]==0 for i in range(self.filas)):
-                log_step(self.frame, f"Columna {col+1} son 0, su determinante es 0 (Matriz Singular)", self.matriz, det=0, tag="singular")
+        for col in range(n):
+            if all(A[i][col] == 0 for i in range(n)):
+                log_step(self.frame, f"Columna {col+1} de A es nula: det(A) = 0 (A singular).{sigue}", self.matriz, det=0, tag="singular")
                 return True
-        for i in range(self.filas):
-            for j in range(i+1, self.filas):
-                if self.matriz[i] == self.matriz[j]:
-                    log_step(self.frame, f"Filas {i+1} y {j+1} son iguales, su determinmante es 0 (Matriz Singular)", self.matriz, det=0, tag="singular")
+        for i in range(n):
+            for j in range(i+1, n):
+                if A[i] == A[j]:
+                    log_step(self.frame, f"Filas {i+1} y {j+1} de A son iguales: det(A) = 0 (A singular).{sigue}", self.matriz, det=0, tag="singular")
                     return True
-        for i in range(self.columnas):
-            for j in range(i+1, self.columnas):
-                col_i = [self.matriz[k][i] for k in range(self.filas)]
-                col_j = [self.matriz[k][j] for k in range(self.filas)]
-                if col_i == col_j:
-                    log_step(self.frame, f"Columnas {i+1} y {j+1} son iguales, su determinante es 0 (Matriz Singular)", self.matriz, det=0, tag="singular")
+        for i in range(n):
+            for j in range(i+1, n):
+                if [A[k][i] for k in range(n)] == [A[k][j] for k in range(n)]:
+                    log_step(self.frame, f"Columnas {i+1} y {j+1} de A son iguales: det(A) = 0 (A singular).{sigue}", self.matriz, det=0, tag="singular")
                     return True
         return False
 
     def determinant_result(self):
-        if self.filas != self.columnas:
-            return 
-        diag_product = 1.0
-        limit = min(self.filas, self.columnas)
-        for i in range(limit):
-            diag_product *= self.matriz[i][i]
-        final_dect = self.determinante * diag_product
-        details = f"Determinante = ({format_number(self.determinante)})" + "".join(f"({format_number(self.matriz[i][i])})" for i in range(limit))
-        log_step(self.frame, details, self.matriz, det=format_number(float(final_dect)), tag="det")
+        """det(A) = (signo de los intercambios) · producto de la diagonal de U.
+
+        Sólo para A cuadrada (antes se calculaba sobre la diagonal de la
+        aumentada cuando ESA era cuadrada, es decir, para A de m×(m-1), y
+        nunca para un sistema cuadrado). Si A es singular, la última fila de
+        la parte A de U es nula y el producto es 0.
+        """
+        if not self._a_es_cuadrada():
+            return
+        n = self._n_incognitas()
+        diagonal = [self.matriz[i][i] for i in range(n)]
+        if any(d == 0.0 for d in diagonal):
+            det = 0.0
+        else:
+            det = self._signo * math.prod(diagonal)
+        self.determinante = det
+        factores = "".join(f"({format_number(d)})" for d in diagonal)
+        signo = "" if self._signo > 0 else "−"
+        texto = f"Determinante de A = {signo}{factores} = {format_number(det)}"
+        if det == 0.0 and all(d != 0.0 for d in diagonal):
+            texto += " (no representable en coma flotante: A es invertible)"
+        elif math.isinf(det):
+            texto += " (desborda: no representable en coma flotante)"
+        log_step(self.frame, texto, self.matriz, det=format_number(det), tag="det")
 
     def swipe_rows(self, fila_a, fila_b) -> None:
         temp = self.matriz[fila_a]
         self.matriz[fila_a] = self.matriz[fila_b]
         self.matriz[fila_b] = temp
-        if self.filas == self.columnas:
-            self.determinante *= -1.0
-        log_step(self.frame, f"Fila {fila_a+1} <-> Fila {fila_b+1}", self.matriz,
-                det=(format_number(self.determinante) if self.filas == self.columnas else None), tag="swap_rows")
+        if self._cotas is not None:
+            self._cotas.intercambiar(fila_a, fila_b)
+        texto = f"Fila {fila_a+1} <-> Fila {fila_b+1}"
+        if self._a_es_cuadrada():
+            self._signo *= -1.0
+            texto += " (cambia el signo de det(A))"
+        log_step(self.frame, texto, self.matriz, det=None, tag="swap_rows")
 
 __all__ = ['GaussMethod']
