@@ -332,8 +332,11 @@ class TestCramerYGaussJordanCoinciden(unittest.TestCase):
 
 
 class TestConsistenciaEntreFunciones(unittest.TestCase):
-    """det == 0.0 <=> rango < n <=> is_singular <=> inverse levanta, sobre
-    matrices cuyo rango se conoce por construcción."""
+    """rango < n <=> is_singular <=> inverse levanta, y en ese caso det == 0.0,
+    sobre matrices cuyo rango se conoce por construcción. Todas tienen un
+    det representable, así que acá también vale la vuelta (det == 0.0 =>
+    singular); con det fuera del rango del double NO vale: ver
+    tests/test_formato_y_representabilidad.py."""
 
     CASOS = [
         (diag(1e-8, 1e-8), 2), (diag(1e-5, 1e-5, 1e-5), 3), (esc(1e-13, B), 2), (esc(1e13, C3), 3),
@@ -371,8 +374,8 @@ class TestFormatNumber(unittest.TestCase):
         (1e-15, '1e-15'), (-1e-15, '-1e-15'), (1e-7, '1e-7'), (2.5e-10, '2.5e-10'), (1e-16, '1e-16'),
         (2.0, '2'), (-7.0, '-7'), (1.9999999999999998, '2'), (123.0, '123'),
         (0.5, '1/2'), (-0.5, '-1/2'), (1 / 3, '1/3'), (-2 / 7, '-2/7'), (0.30000000000000004, '3/10'),
-        (0.001, '1/1000'), (0.0015, '0.0015'),
-        (math.pi, '3.141592654'), (1e20, '1e20'), (-3.5e-12, '-3.5e-12'),
+        (0.001, '1/1000'), (0.0015, '3/2000'),
+        (math.pi, '≈3.141592654'), (1e20, '1e20'), (-3.5e-12, '-3.5e-12'),
         (float('inf'), 'inf'), (float('-inf'), '-inf'),
     ]
 
