@@ -34,7 +34,7 @@ GaussMethod(matriz: List[List[float]], b: Optional[List[float]])
 
 - Si `b is not None`: valida `len(b) == len(matriz)` (`ValueError` si no), construye la aumentada `aug = [row + [b_i] for ...]`, marca `self.is_augmented = True`.
 - Si `b is None`: envuelve `matriz` sola, `self.is_augmented = False` (sólo tiene sentido para calcular un determinante, no para resolver un sistema).
-- Atributos: `self.A`, `self.b` (copias de la entrada original), `self.determinante = 1.0` (acumulador de signo por swaps), `self.tolerance = 1e-13`, `self.frame: List[Dict[str, Any]] = []`, `self.pivots: List[Tuple[int,int]] = []`.
+- Atributos: `self.A`, `self.b` (copias de la entrada original), `self.determinante` (`det(A)` si `A` es cuadrada, se llena en `gauss_method()`; `None` si no), `self.tolerance = 1e-13` (se conserva por compatibilidad, **ya no decide nada**: ver sección 7), `self.frame: List[Dict[str, Any]] = []`, `self.pivots: List[Tuple[int,int]] = []`.
 
 ---
 
@@ -48,11 +48,13 @@ GaussMethod(matriz: List[List[float]], b: Optional[List[float]])
 
 ### `gauss_method() -> List[Dict[str, Any]]`
 
-Triangulariza `self.matriz` (debe ser la aumentada; lanza `RuntimeError` si `is_augmented` es `False`). Antes de operar, si la matriz es cuadrada, llama a `null_determinant()`: si detecta una condición que implica determinante 0 (fila/columna toda-cero, filas/columnas repetidas), registra el motivo y **corta ahí**, sin seguir eliminando. Si no, recorre columnas, elige pivote por máximo valor absoluto en la columna (`sel = max(range(row, m), key=lambda r: abs(aug[r][col]))`), intercambia filas si hace falta, elimina hacia abajo, y al final — si la matriz es cuadrada — llama a `determinant_result()`.
+Triangulariza `self.matriz` (debe ser la aumentada; lanza `RuntimeError` si `is_augmented` es `False`). Si `A` es cuadrada, primero llama a `null_determinant()`, que sólo **registra** atajos de singularidad; la eliminación **siempre se completa**. Recorre columnas, elige pivote por máximo valor absoluto entre las entradas que no son ruido según el criterio de la sección 7, intercambia filas si hace falta, elimina hacia abajo y deja el ruido en `0.0` exacto. Al final, si `A` es cuadrada, llama a `determinant_result()`.
+
+**Corrección (fix/gauss-consistency).** Antes, `null_determinant()` **cortaba** la eliminación y el análisis leía la matriz sin reducir. Además, la condición "cuadrada" se evaluaba sobre la **aumentada** (m×(n+1)): nunca se cumplía para un sistema cuadrado, y sí para `A` de m×(m−1). Un 3×2 con dos ecuaciones repetidas y solución única salía "infinitas". Que `A` sea singular no distingue un sistema incompatible de uno indeterminado; eso sólo lo dice la eliminación completa.
 
 ### `fordward_elimination_aug() -> Tuple[Matrix, List[Tuple[int,int]]]`
 
-Variante de la misma eliminación hacia adelante (nombre con el typo histórico "fordward"), usada por `solve_and_log()` cuando se quiere sólo triangular sin el chequeo de `null_determinant()`. Devuelve `(matriz_triangular, pivots)`.
+La misma eliminación hacia adelante que `gauss_method()` (nombre con el typo histórico "fordward"), sin los pasos de singularidad y determinante. Devuelve `(matriz_triangular, pivots)`. Antes era una copia del código con sus propias reglas; hoy ambos llaman a `_eliminar_hacia_adelante()`.
 
 ### `solve_and_log() -> Dict[str, Any]`
 
@@ -62,15 +64,15 @@ Asume que la triangulación ya corrió. Llama a `solve_from_upper(self.matriz, p
 
 ### `null_determinant() -> bool`
 
-Heurística rápida y conservadora para matrices cuadradas: detecta fila toda-cero, columna toda-cero, dos filas iguales, o dos columnas iguales. Si encuentra alguna, registra el motivo en el `frame` (`tag="singular"`) y devuelve `True`. No es exhaustiva — una matriz puede ser singular sin caer en ninguno de estos cuatro casos, y en ese caso la triangulación sigue normalmente (el pivote ≈ 0 se detecta más adelante, columna por columna).
+Atajos de singularidad **sobre `A`** (no sobre `[A|b]`), sólo si `A` es cuadrada: fila toda-cero, columna toda-cero, dos filas iguales o dos columnas iguales. La comparación es exacta, porque son datos de entrada. Si encuentra alguno, registra el motivo en el `frame` (`tag="singular"`), con la aclaración de que no hay solución única y que la eliminación continúa, y devuelve `True`. **No corta el procedimiento** y no decide el tipo de sistema. No es exhaustiva: una matriz puede ser singular sin caer en ninguno de estos casos, y eso lo detecta la eliminación (una columna sin pivote).
 
 ### `determinant_result()`
 
-Sólo si la matriz es cuadrada: multiplica la diagonal de la matriz ya triangularizada, ajusta por `self.determinante` (el signo acumulado por los intercambios de fila), y registra el resultado (`tag="det"`).
+Sólo si `A` es cuadrada: `det(A) = (signo de los intercambios) · producto de la diagonal de la parte A de U`. Lo guarda en `self.determinante` y lo registra (`tag="det"`), p. ej. `Determinante de A = (2)(5/2) = 5`. Si `A` es singular, la última fila de la parte A de U es nula y el resultado es `0`. Si el producto no es representable en coma flotante, el paso lo dice. Antes se calculaba sobre la diagonal de la **aumentada**, sólo cuando ésta era cuadrada (es decir, para `A` de m×(m−1), donde no es `det(A)`), y nunca para un sistema cuadrado.
 
 ### `swipe_rows(fila_a, fila_b)`
 
-Intercambia dos filas, invierte el signo de `self.determinante` si la matriz es cuadrada, y registra el paso (`tag="swap_rows"`).
+Intercambia dos filas (y sus cotas de redondeo) y registra el paso (`tag="swap_rows"`). Si `A` es cuadrada, invierte el signo que usa `determinant_result()` y lo indica en el texto: "(cambia el signo de det(A))".
 
 ---
 
@@ -82,14 +84,16 @@ Intercambia dos filas, invierte el signo de `self.determinante` si la matriz es 
 
 ## 6. `core/system_solver/gauss_solver.py`
 
-Trabaja **sólo** sobre una matriz aumentada ya triangularizada (o al menos con la eliminación hacia adelante completada), y lo reutilizan tanto `GaussMethod` como `GaussJordanMethod`.
+Trabaja **sólo** sobre una matriz aumentada ya triangularizada (o al menos con la eliminación hacia adelante completada), y lo reutilizan tanto `GaussMethod` como `GaussJordanMethod` y el adaptador `api/adapters/reduce.py`.
+
+**Qué es cero acá.** Estas funciones no deciden qué es ruido de redondeo: eso lo decide la eliminación que produjo `U`, con el criterio de [`CriterioNumerico.md`](CriterioNumerico.md), y lo deja escrito como `0.0` exacto. Por eso, con `tol=None` (el default), un valor es cero si y sólo si es `0.0`. Un `tol` numérico se sigue aceptando como umbral absoluto. Antes el default era `1e-12` absoluto sobre la matriz final: tomaba `0 = 1e-13` por `0 = 0` y no encontraba pivotes en sistemas de escala `1e-13`.
 
 ```py
-find_pivots_from_upper(U, tol) -> List[Tuple[int,int]]
-analyze_argumented(U, tol=1e-12) -> Dict[str, Any]
+find_pivots_from_upper(U, tol=None) -> List[Tuple[int,int]]
+analyze_argumented(U, tol=None) -> Dict[str, Any]
     # claves: m, n, pivots, rank, basic_vars, free_vars, inconsistent_rows, status
     # status ∈ {'unique', 'infinite', 'inconsistent'}
-solve_from_upper(U, pivots=None, tol=1e-12, col_permutation=None) -> Dict[str, Any]
+solve_from_upper(U, pivots=None, tol=None, col_permutation=None) -> Dict[str, Any]
     # {**analyze_argumented(...), 'solution': x | None}
     # 'solution' es None si status == 'inconsistent'; si no, una solución
     # particular (variables libres = 0) por sustitución hacia atrás.
@@ -97,11 +101,17 @@ solve_from_upper(U, pivots=None, tol=1e-12, col_permutation=None) -> Dict[str, A
 
 `status` se determina así: `'inconsistent'` si hay alguna fila `0 ... 0 | c` con `c ≠ 0`; `'unique'` si `rank == n` (todas las columnas de coeficientes tienen pivote); `'infinite'` en cualquier otro caso.
 
+```py
+solve_system_direct(A, b, tol=None) -> Dict[str, Any]
+```
+
+Eliminación hacia adelante + análisis + sustitución, **sin registro de pasos** (para pruebas y comprobaciones rápidas; acepta `A` rectangular). Mismo criterio de cero y mismo retorno que `solve_from_upper`. No tiene consumidores en la app. Nunca había funcionado: `List(map(...))` llamaba al genérico `typing.List` (`TypeError` con cualquier entrada) y el pivote se leía de `aug[row][row]` en vez de `aug[row][col]`. Corregida y cubierta en `tests/test_gauss_consistencia.py`.
+
 ---
 
 ## 7. Consideraciones numéricas
 
-- **Tolerancia**: `self.tolerance` (`1e-13` en `GaussMethod`, más estricta que la de `GaussJordanMethod` — ver esa documentación) decide cuándo un valor se trata como 0.
+- **Criterio de cero**: el de [`CriterioNumerico.md`](CriterioNumerico.md), igual que `matrix_tools` y Cramer. La eliminación lleva en paralelo la cota de redondeo de cada entrada (`core.matrix_tools.CotasDeRedondeo`). Un candidato a pivote o una entrada recalculada es cero si es menor que el redondeo que pudo acumular, y se escribe como `0.0` exacto. Antes era `1e-13` absoluto: con coeficientes de alrededor de `1e-13` no había pivotes, y con coeficientes de alrededor de `1e8` el ruido pasaba por dato.
 - **Pivote parcial por filas**: más estable numéricamente que tomar el primer valor no nulo de la columna. No hay pivoteo por columnas — ver la nota del constructor.
 - **Determinante**: sólo tiene sentido si la matriz es cuadrada y `is_augmented=True` no interfiere (el determinante se calcula sobre la parte `A`, ajustado por los swaps registrados en la eliminación).
 

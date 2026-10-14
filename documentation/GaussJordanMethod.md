@@ -29,7 +29,7 @@ GaussJordanMethod(matriz: List[List[float]], b: List[float])
 
 - `b` es obligatorio: `ValueError` si es `None`.
 - Valida forma y tipo **antes** de construir la aumentada, con mensajes explícitos: `A` no vacía y lista de listas, todas las filas del mismo largo, todos los valores de `A` y `b` numéricos (`ValueError`/`TypeError`). Esto es deliberado — sin estas validaciones, el `list(map(float, ...))` de más abajo reventaría con un error genérico de `float()` en vez de decir qué está mal.
-- Atributos: `self.A`, `self.b` (copias originales), `self.tolerance = 1e-12`, `self.frame: List[Dict[str, Any]] = []`, `self.pivots: List[Tuple[int,int]] = []`, `self.determinante: Optional[float] = None` (se llena en `run()`), `self.is_homogeneous` (`True` si todos los `b_i ≈ 0`).
+- Atributos: `self.A`, `self.b` (copias originales), `self.tolerance = 1e-12` (se conserva por compatibilidad, **ya no decide nada**: ver sección 7), `self.frame: List[Dict[str, Any]] = []`, `self.pivots: List[Tuple[int,int]] = []`, `self.determinante: Optional[float] = None` (se llena en `run()`), `self.is_homogeneous` (`True` si todos los `b_i` son **exactamente** 0: `b` es dato, y un `b_i = 1e-13` tipeado no es cero).
 
 ---
 
@@ -60,7 +60,7 @@ Recorre los pivotes de abajo hacia arriba: normaliza cada uno a 1 (`_scale_row`)
 
 ### `analyze() -> Dict[str, Any]`
 
-`analyze_argumented(self.matriz, tol=self.tolerance)` — ver `documentation/GaussMethod.md`, sección 6, para las claves exactas.
+`analyze_argumented(self.matriz)`, sin umbral: la eliminación ya dejó el ruido en `0.0` exacto. Ver `documentation/GaussMethod.md`, sección 6, para las claves exactas.
 
 ### `solve_and_log() -> Dict[str, Any]`
 
@@ -97,9 +97,11 @@ Este shape es **más rico** que el de `GaussMethod.solve_and_log()` (que devuelv
 
 ## 7. Consideraciones numéricas
 
-- **Tolerancia**: `1e-12` **absoluta** en los pivotes de la eliminación (levemente más laxa que la de `GaussMethod`, `1e-13`). No usa todavía el criterio por cota de redondeo de [`CriterioNumerico.md`](CriterioNumerico.md): con entradas del orden de `1e-12` o menores puede no encontrar pivotes y clasificar mal un sistema invertible (fijado como `expectedFailure` en `tests/test_tolerancias_numericas.py`).
+- **Criterio de cero**: el de [`CriterioNumerico.md`](CriterioNumerico.md), el mismo que Gauss, `matrix_tools` y Cramer. `_select_pivot_row`, `_row_elim` y `_scale_row` llevan en paralelo la cota de redondeo de cada entrada (`CotasDeRedondeo`), y lo que es ruido queda en `0.0` exacto. Por eso la RREF final tiene pivotes iguales a `1.0` exacto y ceros exactos, y `analyze_argumented` y `print_parametric_solution_from_rref` la leen sin umbral.
+  - **Antes** se usaba `1e-12` absoluto. Con `1e-13·[[2,1],[1,3]]` no había pivotes y salía "infinitas" (era un `expectedFailure`; hoy pasa como test normal). `0 = 1e-13` salía compatible. `1e8·[[1,2,3],[4,5,6],[7,8,9]]` con `b` en la imagen salía "incompatible".
+  - **Matrices mal condicionadas:** rige la misma zona ambigua que en `CriterioNumerico.md` §4.
 - **Pivote parcial por filas**; no se intercambian columnas.
-- **Determinante**: se calcula aparte con `core.matrix_tools.determinant` (criterio por cota de redondeo, sin `tol` absoluto) sobre `self.A` original, no derivado de las operaciones de RREF (que escalan filas y alterarían el determinante por esos factores si se intentara leerlo de la diagonal final).
+- **Determinante**: se calcula aparte con `core.matrix_tools.determinant` (criterio por cota de redondeo, sin `tol` absoluto) sobre `self.A` original. Si no es representable en coma flotante, el paso lo dice en vez de mostrar `0`. El cálculo esno derivado de las operaciones de RREF (que escalan filas y alterarían el determinante por esos factores si se intentara leerlo de la diagonal final).
 
 ---
 

@@ -130,10 +130,12 @@ En esa zona (número de condición ≳ 10¹²) el resultado no es una afirmació
   - `determinant()` devuelve `0.0`/`inf` con un `RuntimeWarning` (sección 3.1).
   - `inverse()` lo dice en su texto ("no representable en coma flotante… A es invertible") en vez de mostrar `det(A) = 0`. Si algún cofactor tampoco es representable, avisa que la adjunta no es confiable a esa escala.
   - Cramer lo rechaza con `ValueError`.
-  - `gauss_jordan.run()` sigue mostrando "Determinante de A = 0" en ese caso, porque su registro de pasos no se modifica en esta ronda.
+  - `gauss_jordan.run()` y `GaussMethod.determinant_result()` lo dicen en su paso, en vez de mostrar `det = 0`.
 
   **No implementado (requiere decisión):** devolver el determinante como `(mantisa, exponente)` o como `log|det|` permitiría mostrar `1e-330`. Pero cambia el tipo de retorno de `determinant()` y obliga a tocar a todos sus llamadores: `inverse`, `gauss_jordan.run`, el CLI de matrices y `printMethods`.
-- **Gauss y Gauss-Jordan no usan todavía este criterio** en su eliminación (`core/gauss.py`, `core/gauss_jordan.py`, `core/system_solver/gauss_solver.py` siguen con `1e-12`/`1e-13` absolutos). Coinciden con Cramer y con `matrix_tools` mientras las entradas no sean del orden de `1e-12` o menores. Con `1e-13·[[2,1],[1,3]]`, Gauss-Jordan clasifica mal un sistema invertible. Está fijado como `expectedFailure` en `tests/test_tolerancias_numericas.py`. Sí usan el `determinant()` nuevo para el valor que muestran.
+- **Gauss y Gauss-Jordan usan este mismo criterio** (desde `fix/gauss-consistency`). Cada uno sigue haciendo y registrando su propio procedimiento (escalonada / RREF), y lleva en paralelo la cota `S` con `core.matrix_tools.CotasDeRedondeo`.
+  - El ruido queda en `0.0` exacto, así que `gauss_solver` (`analyze_argumented`, `solve_from_upper`), `solve_system_direct` y el adaptador de la API analizan sin umbral propio.
+  - Las decisiones pueden diferir de `rank_of`/`system_ranks` sólo en la zona ambigua de la sección 4: la eliminación de Gauss es hacia adelante y la de `_reducir`, Gauss-Jordan completa, así que el redondeo no es idéntico. En las baterías de prueba coinciden en todos los casos.
 - **Un `tol` explícito sigue siendo absoluto.** Todas las funciones de `matrix_tools` aceptan `tol`; si se pasa un número, se usa como umbral absoluto (el comportamiento anterior, sin el umbral sobre el determinante final). Sin `tol` rige el criterio de este documento.
 
 ## 5. Mostrar números: `format_number`
