@@ -182,6 +182,7 @@ la interfaz API (endpoint, request, response), y ejemplos de uso.
 - [`Vectores.md`](documentation/Vectores.md) — clase `Vector`, axiomas de espacio vectorial, combinación lineal, producto `Ax`.
 - [`Matrices.md`](documentation/Matrices.md) — aritmética matricial, determinante, inversa, verificación de propiedades.
 - [`MatrixProperties.md`](documentation/MatrixProperties.md) — rango, singularidad y núcleo como endpoint propio.
+- [`CriterioNumerico.md`](documentation/CriterioNumerico.md) — cuándo un número calculado "es cero": el criterio compartido por rango, determinante, inversa y Cramer, su calibración y sus límites; y cómo `format_number` muestra números chicos.
 - [`NotacionPosicional.md`](documentation/NotacionPosicional.md) — descomposición en base 10 y base 2 (sólo CLI).
 - [`MetodosNumericos.md`](documentation/MetodosNumericos.md) — bisección, regla falsa, Newton-Raphson, secante.
 - [`AppWeb.md`](documentation/AppWeb.md) — cómo la API consume `core/`, la lista completa de endpoints, y qué capacidad del motor **no** está expuesta vía API todavía (a propósito, no por olvido).

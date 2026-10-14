@@ -30,7 +30,7 @@ CramerMethod(matriz: List[List[float]], b: List[float])
 
 - Valida `len(b) == len(matriz)`.
 - Valida que `matriz` sea cuadrada (`n x n`) — si no, `ValueError` explícito ("CramerMethod sólo acepta matrices cuadradas...").
-- Copia `matrix_A` y `vector_b`; inicializa `n_variables`, `tolerance = 1e-12`, `frame: List[Dict[str, Any]] = []`, `determinant_A`, `solution`.
+- Copia `matrix_A` y `vector_b`; inicializa `n_variables`, `tolerance = 1e-12` (sólo la usa `verify_solution`; la singularidad se decide por rango), `frame: List[Dict[str, Any]] = []`, `determinant_A`, `solution`.
 
 `self.frame` es una **lista** ordenada de pasos, no un diccionario — cada paso tiene su propio índice, así que dos pasos con el mismo texto (p. ej. `n` matrices "Matriz Cramer para xᵢ") no se pisan entre sí. Esto fue una corrección real (commit `3b477fc`): con el frame como `dict` indexado por descripción, los `n` pasos de Cramer sobrevivían sólo como uno.
 
@@ -110,6 +110,7 @@ Si no hay `self.solution` (no se resolvió, o no hubo solución única), devuelv
 - `f"cramer_check_x{i+1}"` — lo mismo, en las ramas singulares (se calculan igual, para poder distinguir inconsistente de infinitas).
 - `"solution"` — solución particular (rama única).
 - `"vars"` — variables básicas/libres (rama única).
+- `"sarrus_rounding"` / `"cofactor_rounding"` — sólo en `calculate_determinant_sarrus`/`_cofactors`: el resultado de la aritmética era ruido de redondeo de una matriz numéricamente singular; el paso lo explica y el método devuelve `0`.
 - `"rank_check"` — sólo cuando `det(A) = 0` y todos los `det(Aᵢ) = 0`: la regla no decide y se comparan `rango(A)` y `rango([A|b])`. La matriz del paso es la aumentada `[A|b]` (n×(n+1)).
 - `"inconsistent"` / `"infinite"` — estado detectado cuando `det(A) = 0`. Siempre es el último paso del frame en esas ramas.
 - `"sarrus_*"` — pasos de la Regla de Sarrus (ver `calculate_determinant_sarrus`, sección 3).
@@ -136,7 +137,7 @@ La respuesta (`api/adapters/reduce.py::_matrix_cramer`) trae dos cosas que `solv
 
 El `summary` **no** trae `rank`/`ranks`: la regla de Cramer no calcula rangos. Cuando hace falta el análisis de rangos auxiliar (sección 4.1), sus valores aparecen en el paso `rank_check` del procedimiento, no en el `summary` — así el contrato es el mismo en todos los casos y no se presenta como resultado de Cramer algo que no lo es.
 
-**Limitación conocida (previa, no tocada por esta corrección):** `det(A) ≈ 0` se decide con tolerancia **absoluta** (`1e-12`), que depende de la escala. Una matriz como `1e-5·I` (no singular) tiene `det = 1e-15` y se trata como singular. `rank_of` usa la misma tolerancia absoluta pero sobre los pivotes, así que en esos casos extremos los dos criterios pueden discrepar.
+**Cuándo un determinante "es 0":** no se decide por el tamaño del número (`det(1e-5·I) = 1e-15` es invertible) sino por el rango, con el criterio compartido de `core/matrix_tools.py` — ver [`CriterioNumerico.md`](CriterioNumerico.md). `det(A) ≠ 0 ⇔ rango(A) = n` y `det(Aᵢ) ≠ 0 ⇔ rango(Aᵢ) = n`. Si la aritmética de un det singular da ruido (`-2.78e-17` para la matriz 0.1…0.9), el paso lo dice y se informa `0`. Si `A` tiene rango completo pero `det(A)` no es representable en coma flotante (subdesborda a `0.0`), `solve()` levanta `ValueError` en vez de dividir por cero. `CramerMethod.determinants_C` guarda los `n` det(Aᵢ) tal como se decidieron, y `api/adapters/reduce.py` los toma de ahí.
 
 ```py
 # api/adapters/reduce.py

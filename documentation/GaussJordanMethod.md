@@ -97,9 +97,9 @@ Este shape es **más rico** que el de `GaussMethod.solve_and_log()` (que devuelv
 
 ## 7. Consideraciones numéricas
 
-- **Tolerancia**: `1e-12` (levemente más laxa que la de `GaussMethod`, `1e-13`).
+- **Tolerancia**: `1e-12` **absoluta** en los pivotes de la eliminación (levemente más laxa que la de `GaussMethod`, `1e-13`). No usa todavía el criterio por cota de redondeo de [`CriterioNumerico.md`](CriterioNumerico.md): con entradas del orden de `1e-12` o menores puede no encontrar pivotes y clasificar mal un sistema invertible (fijado como `expectedFailure` en `tests/test_tolerancias_numericas.py`).
 - **Pivote parcial por filas**; no se intercambian columnas.
-- **Determinante**: se calcula aparte con `core.matrix_tools.determinant` sobre `self.A` original, no derivado de las operaciones de RREF (que escalan filas y alterarían el determinante por esos factores si se intentara leerlo de la diagonal final).
+- **Determinante**: se calcula aparte con `core.matrix_tools.determinant` (criterio por cota de redondeo, sin `tol` absoluto) sobre `self.A` original, no derivado de las operaciones de RREF (que escalan filas y alterarían el determinante por esos factores si se intentara leerlo de la diagonal final).
 
 ---
 
