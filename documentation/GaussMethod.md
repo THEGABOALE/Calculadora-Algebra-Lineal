@@ -68,7 +68,9 @@ Atajos de singularidad **sobre `A`** (no sobre `[A|b]`), sólo si `A` es cuadrad
 
 ### `determinant_result()`
 
-Sólo si `A` es cuadrada: `det(A) = (signo de los intercambios) · producto de la diagonal de la parte A de U`. Lo guarda en `self.determinante` y lo registra (`tag="det"`), p. ej. `Determinante de A = (2)(5/2) = 5`. Si `A` es singular, la última fila de la parte A de U es nula y el resultado es `0`. Si el producto no es representable en coma flotante, el paso lo dice. Antes se calculaba sobre la diagonal de la **aumentada**, sólo cuando ésta era cuadrada (es decir, para `A` de m×(m−1), donde no es `det(A)`), y nunca para un sistema cuadrado.
+Sólo si `A` es cuadrada: `det(A) = (signo de los intercambios) · producto de la diagonal de la parte A de U`. Lo guarda en `self.determinante` y lo registra (`tag="det"`), p. ej. `Determinante de A = (2)(5/2) = 5`, o `Determinante de A = −(…)(…)(…) = …` si hubo un número impar de intercambios. Si `A` es singular, la última fila de la parte A de U es nula y el resultado es `0`.
+
+El producto se calcula con `core.matrix_tools.producto_sin_desborde`, el mismo que usa `matrix_tools.determinant`: mantisa y exponente por separado, armados al final. Antes era `math.prod`, y `diag(1e-200, 1e-200, 1e300)` daba `0` con un paso que decía "no representable", aunque `det = 1e-100` sí lo es. Ahora el paso sólo dice "no representable (subdesborda/desborda)" si el **resultado** no entra en un `double` (`1e-110·I₃`, `1e110·I₃`).Antes se calculaba sobre la diagonal de la **aumentada**, sólo cuando ésta era cuadrada (es decir, para `A` de m×(m−1), donde no es `det(A)`), y nunca para un sistema cuadrado.
 
 ### `swipe_rows(fila_a, fila_b)`
 

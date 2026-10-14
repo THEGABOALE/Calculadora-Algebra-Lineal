@@ -78,7 +78,14 @@ Son dos cosas distintas:
 
 Para decidir singularidad se usa `is_singular`/`rank_of`, nunca `determinant(A) == 0.0`.
 
-El producto de pivotes se acumula como mantisa y exponente (`math.frexp`) y se arma al final. Así sólo se pierde cuando el **resultado** no es representable, no por un producto parcial: `diag(1e-200, 1e-200, 1e300)` da `1e-100`, mientras que multiplicando de a uno daba `0.0`. Se mantuvo el tipo de retorno `float` para no cambiar el contrato de quienes llaman a `determinant()`; la alternativa que no se implementó está en la sección 4.1.
+El producto de pivotes se acumula con `producto_sin_desborde()`: mantisa y exponente (`math.frexp`) por separado, armados al final. Así sólo se pierde cuando el **resultado** no es representable, no por un producto parcial: `diag(1e-200, 1e-200, 1e300)` da `1e-100`, mientras que multiplicando de a uno daba `0.0`. Para números normales da exactamente lo mismo que multiplicar de a uno, porque escalar por potencias de 2 es exacto.
+
+La misma función usan:
+
+- `GaussMethod.determinant_result()`;
+- los productos de tres factores de Sarrus (`calculate_determinant_sarrus`, que expone `matrix/determinant`, y el det 3×3 de `CramerMethod.solve()`).
+
+Antes Sarrus daba `0.0`/`inf` para esas matrices y Cramer rechazaba el sistema. Hoy Gauss, Gauss-Jordan, `matrix_tools`, Cramer, Sarrus y cofactores dan el mismo determinante. La expansión por cofactores (y el det de Cramer para n ≥ 4) recorre menores cuyo determinante puede no ser representable aunque el de la matriz sí lo sea: `diag(1e300, 1e-200, 1e-200)` pasa por el menor `1e-200·1e-200 = 1e-400`. Por eso, si la aritmética directa da `0` o `±inf` con rango completo, se recalcula con `matrix_tools.determinant` (mantisa y exponente). El paso lo explica (`cofactor_overflow` / `sarrus_overflow`). Sólo si el resultado tampoco es representable así, se informa como no representable.Se mantuvo el tipo de retorno `float` para no cambiar el contrato de quienes llaman a `determinant()`; la alternativa que no se implementó está en la sección 4.1.
 
 ### 3.2. Sistemas: `system_ranks(A, b)`
 

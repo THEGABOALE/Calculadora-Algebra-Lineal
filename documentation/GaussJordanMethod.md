@@ -46,7 +46,7 @@ Lista ordenada de pasos (no un diccionario), igual que `GaussMethod` — ver `do
 Orquestador. Reinicia `self.frame`, y en orden:
 
 1. Registra si el sistema es homogéneo o no (`tag="homogeneity_check"`).
-2. Intenta calcular `determinant(self.A)` y `is_singular()` (via `core.matrix_tools`), y los registra — envuelto en `try/except` amplio para no interrumpir el proceso si `A` no es cuadrada o algo falla. **Esto sí se calcula y se reporta**, a diferencia de lo que decía una versión anterior de esta documentación ("no se informa el determinante porque se escalan filas"): el determinante se obtiene con `core.matrix_tools.determinant`, que es un cálculo aparte (Gauss con pivoteo parcial, sin las normalizaciones de RREF), no derivado de la reducción de Gauss-Jordan en curso.
+2. Intenta calcular `determinant(self.A)` y la singularidad de `A` con `core.matrix_tools.is_singular(self.A)` **sobre la matriz original**, y los registra (`tag="singularity"`: "Estado de singularidad de A: singular (rango(A) < n): no hay solución única; si Ax = b es compatible … o incompatible se decide al eliminar" / "no singular (rango(A) = n): Ax = b tiene solución única"). Antes se usaba el método `self.is_singular()`, que a esa altura leía con `analyze_argumented` una matriz **todavía sin escalonar**: cada fila no nula "tenía pivote", y `[[1,2],[2,4]]` salía "no singular" debajo de "Determinante de A = 0". Todo esto vaenvuelto en `try/except` amplio para no interrumpir el proceso si `A` no es cuadrada o algo falla. **Esto sí se calcula y se reporta**, a diferencia de lo que decía una versión anterior de esta documentación ("no se informa el determinante porque se escalan filas"): el determinante se obtiene con `core.matrix_tools.determinant`, que es un cálculo aparte (Gauss con pivoteo parcial, sin las normalizaciones de RREF), no derivado de la reducción de Gauss-Jordan en curso.
 3. `forward_elimination()`.
 4. `backward_elimination_and_normalize()`.
 
@@ -72,14 +72,19 @@ El método más rico de la clase. Además del resumen y la solución particular 
 
 **Shape del retorno:**
 
-- Si `status == "inconsistent"`: `{**info, "solution": None}` (donde `info` es lo que devuelve `analyze()`).
+- Si `status == "inconsistent"`: `{**info, "solution": None, "parametric_solution": None, "tipo_sistema", "dependencia", "determinant", "is_singular"}`. Antes faltaban las claves extra y `r["is_singular"]` daba `KeyError` justo en el caso incompatible.
 - Si no: `{**result, "parametric_solution", "tipo_sistema", "dependencia", "determinant", "is_singular"}`, donde `result` es lo que devuelve `solve_from_upper(...)`. Es decir, las claves finales son: `m, n, pivots, rank, basic_vars, free_vars, inconsistent_rows, status, solution, parametric_solution, tipo_sistema, dependencia, determinant, is_singular`.
 
 Este shape es **más rico** que el de `GaussMethod.solve_and_log()` (que devuelve el dict crudo de `solve_from_upper`, sin extras) — es la diferencia real entre los dos métodos a nivel de API de Python, más allá del algoritmo.
 
 ### `is_singular() -> Optional[bool]`
 
-`None` si `A` no es cuadrada. Si es cuadrada, `rank(A) < n` según `analyze()`.
+`None` si `A` no es cuadrada. Si es cuadrada, `rank(A) < n`. Válido antes y después de eliminar:
+
+- **Después** de `forward_elimination()`, el rango sale de `analyze()` sobre la matriz escalonada.
+- **Antes**, de `core.matrix_tools.is_singular(self.A)`, porque `analyze()` sólo sabe leer el rango de una matriz ya escalonada.
+
+Ambos usan el mismo criterio de cero.
 
 ---
 
