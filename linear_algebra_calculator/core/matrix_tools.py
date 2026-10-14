@@ -61,6 +61,34 @@ def _es_cero(valor: float, cota: float, tau: float, tol: Optional[float]) -> boo
     return abs(valor) <= tau * cota
 
 
+def producto_sin_desborde(factores, signo: float = 1.0) -> float:
+    """Producto de `factores` (por `signo`) sin subdesborde ni desborde
+    INTERMEDIOS.
+
+    Multiplicar de a uno pierde el resultado aunque sea representable:
+    1e-200 · 1e-200 · 1e300 da 0.0 (el parcial 1e-400 subdesborda) y
+    1e200 · 1e200 · 1e-300 da inf, cuando el producto es 1e-100 / 1e100. Acá
+    se acumula mantisa y exponente por separado (math.frexp) y el número se
+    arma una sola vez al final, así que sólo se pierde si el RESULTADO no
+    entra en un double: 0.0 si subdesborda, ±inf si desborda.
+
+    Para números normales el resultado es idéntico al de multiplicar de a
+    uno: escalar por una potencia de 2 es exacto, así que cada producto de
+    mantisas redondea igual que el producto original.
+    """
+    mantisa, exponente = float(signo), 0
+    for factor in factores:
+        if factor == 0:
+            return 0.0
+        m_f, e_f = math.frexp(factor)
+        mantisa, e_norm = math.frexp(mantisa * m_f)
+        exponente += e_f + e_norm
+    try:
+        return math.ldexp(mantisa, exponente)
+    except OverflowError:
+        return math.copysign(math.inf, mantisa)
+
+
 class CotasDeRedondeo:
     """El criterio de cero de este módulo, para métodos que hacen su propia
     eliminación paso a paso (Gauss, Gauss-Jordan).
@@ -263,8 +291,8 @@ def _reducir(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, List[int],
     - producto_de_pivotes: producto de los pivotes ANTES de normalizarlos,
       con el signo de los intercambios. Si A es cuadrada y de rango completo
       es det(A); si no, no significa nada y quien lo use debe mirar el rango.
-      Se acumula como mantisa y exponente (math.frexp) y se arma recién al
-      final: multiplicar de a uno subdesbordaba con diag(1e-200, 1e-200,
+      Se acumula con producto_sin_desborde (mantisa y exponente, armado
+      recién al final): multiplicar de a uno subdesbordaba con diag(1e-200, 1e-200,
       1e300) aunque det = 1e-100 es representable. Si el producto FINAL no
       es representable, queda 0.0 (subdesborda) o ±inf (desborda).
 
@@ -278,7 +306,8 @@ def _reducir(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, List[int],
     S = [[abs(x) for x in row] for row in M]
     tau = _tau(m, n)
     pivot_cols: List[int] = []
-    mantisa, exponente = 1.0, 0
+    pivotes: List[float] = []
+    signo = 1.0
     row = 0
     for col in range(n):
         if row >= m:
@@ -293,11 +322,9 @@ def _reducir(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, List[int],
         if sel != row:
             M[row], M[sel] = M[sel], M[row]
             S[row], S[sel] = S[sel], S[row]
-            mantisa = -mantisa
+            signo = -signo
         pivot = M[row][col]
-        m_piv, e_piv = math.frexp(pivot)
-        mantisa, e_norm = math.frexp(mantisa * m_piv)
-        exponente += e_piv + e_norm
+        pivotes.append(pivot)
         # escalar fila (la cota relativa se escala igual)
         for j in range(col, n):
             M[row][j] = M[row][j] / pivot
@@ -318,11 +345,7 @@ def _reducir(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, List[int],
             M[r][col] = 0.0
         pivot_cols.append(col)
         row += 1
-    try:
-        producto = math.ldexp(mantisa, exponente)
-    except OverflowError:
-        producto = math.copysign(math.inf, mantisa)
-    return M, pivot_cols, producto
+    return M, pivot_cols, producto_sin_desborde(pivotes, signo)
 
 def _rref_matrix(A: Matrix, tol: Optional[float] = None) -> Tuple[Matrix, int]:
     """Devuelve una copia en RREF y el rango (número de pivotes no nulos)."""

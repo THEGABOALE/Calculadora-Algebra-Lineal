@@ -1,10 +1,21 @@
 from core.matrix import Matrix
-from core.matrix_tools import rank_of, system_ranks
+from core.matrix_tools import determinant as _determinante_por_eliminacion
+from core.matrix_tools import producto_sin_desborde, rank_of, system_ranks
 from typing import Any, Dict, List, Optional
 from utils.printMethods import log_step
 from utils.EquationFunctions import format_number, num_to_sub
 import copy
 from math import isfinite
+import warnings
+
+
+def _det_sin_desborde(matrix: List[List[float]]) -> float:
+    """det por eliminación con el producto de pivotes acumulado en mantisa y
+    exponente (core.matrix_tools.determinant), sin su RuntimeWarning: quien
+    llama ya está informando el caso no representable."""
+    with warnings.catch_warnings():
+        warnings.simplefilter("ignore", RuntimeWarning)
+        return _determinante_por_eliminacion(matrix)
 
 class CramerMethod(Matrix):
     """
@@ -61,9 +72,11 @@ class CramerMethod(Matrix):
         a31, a32, a33 = matrix[2]
 
         # Diagonales positivas
-        d1_pos = a11 * a22 * a33
-        d2_pos = a12 * a23 * a31
-        d3_pos = a13 * a21 * a32
+        # Productos de tres factores sin subdesborde/desborde intermedio:
+        # (1e-200·1e-200)·1e300 daba 0 aunque el término vale 1e-100.
+        d1_pos = producto_sin_desborde((a11, a22, a33))
+        d2_pos = producto_sin_desborde((a12, a23, a31))
+        d3_pos = producto_sin_desborde((a13, a21, a32))
         positive = d1_pos + d2_pos + d3_pos
 
         log_step(self.frame, f"Paso 2: Diagonales principales (↘):", matrix, det=None, tag="sarrus_pos")
@@ -73,9 +86,9 @@ class CramerMethod(Matrix):
         log_step(self.frame, f"  Suma positiva: {format_number(d1_pos)} + {format_number(d2_pos)} + {format_number(d3_pos)} = {format_number(positive)}", matrix, det=None, tag="sarrus_sum_pos")
 
         # Diagonales negativas
-        d1_neg = a13 * a22 * a31
-        d2_neg = a11 * a23 * a32
-        d3_neg = a12 * a21 * a33
+        d1_neg = producto_sin_desborde((a13, a22, a31))
+        d2_neg = producto_sin_desborde((a11, a23, a32))
+        d3_neg = producto_sin_desborde((a12, a21, a33))
         negative = d1_neg + d2_neg + d3_neg
 
         log_step(self.frame, f"Paso 3: Diagonales secundarias (↙):", matrix, det=None, tag="sarrus_neg")
@@ -104,7 +117,33 @@ class CramerMethod(Matrix):
         y se devuelve 0.0. Si no lo es, el valor calculado se respeta por
         chico que sea: det(1e-5·I) = 1e-15 no es ruido.
         """
-        if det == 0.0 or rank_of(matrix) == len(matrix):
+        n = len(matrix)
+        if rank_of(matrix) == n:
+            if det != 0.0 and isfinite(det):
+                return det
+            # Rango completo pero la aritmética directa dio 0 / ±inf: pasó por
+            # un producto o un menor no representable (diag(1e300, 1e-200,
+            # 1e-200) pasa por el menor 1e-200·1e-200 = 1e-400). Se recalcula
+            # acumulando mantisa y exponente, y se dice.
+            tag_rep = tag.replace("rounding", "overflow")
+            exacto = _det_sin_desborde(matrix)
+            if exacto != 0.0 and isfinite(exacto):
+                log_step(
+                    self.frame,
+                    f"La aritmética directa dio {format_number(det)} porque un producto intermedio no es "
+                    f"representable en coma flotante; la matriz tiene rango completo y, acumulando mantisa y "
+                    f"exponente, det = {format_number(exacto)}",
+                    matrix, det=format_number(exacto), tag=tag_rep,
+                )
+                return exacto
+            log_step(
+                self.frame,
+                f"det = {format_number(exacto)}: no representable en coma flotante "
+                f"({'subdesborda' if exacto == 0.0 else 'desborda'}); la matriz es invertible (rango completo)",
+                matrix, det=None, tag=tag_rep,
+            )
+            return exacto
+        if det == 0.0:
             return det
         log_step(
             self.frame,
@@ -202,8 +241,12 @@ class CramerMethod(Matrix):
             a31, a32, a33 = matrix[2]
             
             # Regla de Sarrus:
-            positive = a11 * a22 * a33 + a12 * a23 * a31 + a13 * a21 * a32
-            negative = a13 * a22 * a31 + a11 * a23 * a32 + a12 * a21 * a33
+            # Mismos productos que calculate_determinant_sarrus, sin
+            # subdesborde/desborde intermedio (ver producto_sin_desborde).
+            positive = (producto_sin_desborde((a11, a22, a33)) + producto_sin_desborde((a12, a23, a31))
+                        + producto_sin_desborde((a13, a21, a32)))
+            negative = (producto_sin_desborde((a13, a22, a31)) + producto_sin_desborde((a11, a23, a32))
+                        + producto_sin_desborde((a12, a21, a33)))
             return positive - negative
         
         # Caso recursivo: expansión por la primera fila
@@ -263,6 +306,11 @@ class CramerMethod(Matrix):
         # suele dar por aritmética un det de ~1e-17 en vez de 0: es ruido de
         # redondeo, se informa como tal y det(A) se toma como 0.
         singular = rank_of(self.matrix_A) < n
+        if not singular and (detA_calculado == 0.0 or not isfinite(detA_calculado)):
+            # Rango completo pero la expansión directa pasó por un producto o
+            # un menor no representable: se recalcula con mantisa y exponente.
+            # Sólo si tampoco así es representable, se rechaza más abajo.
+            detA_calculado = _det_sin_desborde(self.matrix_A)
         detA = 0.0 if singular else detA_calculado
         self.determinant_A = detA
 
@@ -288,6 +336,10 @@ class CramerMethod(Matrix):
             for col in range(n):
                 C = self.create_cramer_matrix(col)
                 detC = self.calculate_determinant(C, show_sarrus=(n == 3))
+                if (detC == 0.0 or not isfinite(detC)) and rank_of(C) == n:
+                    # Igual que con det(A): un 0 / inf de la expansión directa
+                    # con Aᵢ de rango completo es pérdida intermedia, no dato.
+                    detC = _det_sin_desborde(C)
                 xi = detC / detA
                 if not isfinite(xi):
                     raise ValueError(

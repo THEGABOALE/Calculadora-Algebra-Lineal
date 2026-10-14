@@ -41,7 +41,7 @@ import copy
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.matrix_tools import CotasDeRedondeo
+from core.matrix_tools import CotasDeRedondeo, producto_sin_desborde
 from core.system_solver.gauss_solver import solve_from_upper, analyze_argumented
 from utils.printMethods import log_step
 
@@ -239,18 +239,23 @@ class GaussMethod(Matrix):
             return
         n = self._n_incognitas()
         diagonal = [self.matriz[i][i] for i in range(n)]
-        if any(d == 0.0 for d in diagonal):
-            det = 0.0
-        else:
-            det = self._signo * math.prod(diagonal)
+        singular = any(d == 0.0 for d in diagonal)
+        # producto_sin_desborde (el mismo que usa matrix_tools.determinant):
+        # math.prod multiplicaba de a uno y diag(1e-200, 1e-200, 1e300) daba
+        # 0 -- con un paso que decía "no representable" de un det = 1e-100
+        # que sí lo es. Ahora 0.0 / inf sólo aparecen si el RESULTADO no
+        # entra en un double.
+        det = 0.0 if singular else producto_sin_desborde(diagonal, self._signo)
+        if det == 0:
+            det = 0.0           # sin -0.0
         self.determinante = det
         factores = "".join(f"({format_number(d)})" for d in diagonal)
         signo = "" if self._signo > 0 else "−"
         texto = f"Determinante de A = {signo}{factores} = {format_number(det)}"
-        if det == 0.0 and all(d != 0.0 for d in diagonal):
-            texto += " (no representable en coma flotante: A es invertible)"
+        if not singular and det == 0.0:
+            texto += " (|det(A)| < ~5e-324: no representable en coma flotante, subdesborda; A es invertible)"
         elif math.isinf(det):
-            texto += " (desborda: no representable en coma flotante)"
+            texto += " (|det(A)| > ~1.8e308: no representable en coma flotante, desborda)"
         log_step(self.frame, texto, self.matriz, det=format_number(det), tag="det")
 
     def swipe_rows(self, fila_a, fila_b) -> None:
