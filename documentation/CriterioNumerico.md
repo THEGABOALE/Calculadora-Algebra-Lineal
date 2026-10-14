@@ -138,68 +138,79 @@ En esa zona (número de condición ≳ 10¹²) el resultado no es una afirmació
 
 ## 5. Mostrar números: `format_number`
 
-El formato no decide si algo es cero: eso lo decide el algoritmo con el criterio de arriba, y lo escribe como `0.0` exacto. `format_number` muestra lo que recibe, en una de tres presentaciones.
+El formato no decide si algo es cero: eso lo decide el algoritmo con el criterio de arriba, y lo escribe como `0.0` exacto. `format_number` muestra lo que recibe, con una sola regla:
 
-### 5.1. Las tres presentaciones
+> **Sin marca, el texto es el valor guardado. Cualquier otra cosa lleva `≈`.**
 
-1. **Exacta del valor guardado**:
-   - `0` sólo para el cero exacto.
-   - Un entero con todas sus cifras mientras sea exacto (`|x| < 2⁵³`; más allá, `repr`, que también es exacto).
-   - Una fracción legible cuyo valor en `float` **es** el guardado.
-   - O el decimal más corto que reproduce el `float` (`repr`), si tiene ≤ 15 cifras significativas.
-2. **Simplificada**: sólo para un valor cuya representación exacta necesita 16–17 cifras (no es un decimal "limpio"). Se muestra el entero, la fracción legible o el decimal de ≤ 10 cifras que esté a **≤ 128 ulps** (≈ 3·10⁻¹⁴ relativo). Es ruido de redondeo alrededor de un número simple.
-3. **Aproximación visible**: si no hay nada simple tan cerca, 10 cifras con `≈` adelante. No se presenta como exacto algo que no lo es.
+### 5.1. Por qué no hay "simplificación sin marca"
 
-"Fracción legible" significa denominador ≤ 10 000 y \|numerador\| ≤ 10⁶.
+Una versión anterior mostraba sin marca el entero o la fracción simple más cercana a cualquier valor cuya representación necesitara 16–17 cifras: `1.9999999999999998` → `2`. La idea era que esos valores son ruido de redondeo. No lo son necesariamente:
 
-### 5.2. Por qué estos números
+- `1000000000000000.5` se mostraba `1000000000000000`;
+- `10000000000.00006`, un valor que un usuario puede **tipear**, se mostraba `10000000000`.
 
-- **Por qué 15 cifras.** Es `DBL_DIG`: todo decimal de hasta 15 cifras sobrevive idéntico al pasar por un `double`. Si `repr(x)` tiene ≤ 15 cifras, ese decimal **es** el valor (`1000000000.25`, `1e-15`) y no hay ruido que limpiar. Por eso un valor limpio nunca se acerca a otro.
-- **Por qué 128 ulps.** Se midió el ruido real del motor sobre 3 000 sistemas enteros 2×2–4×4 contra sus soluciones racionales exactas:
+Ruido calculado y dato tipeado son indistinguibles para el formateador. Con esa política, 379 de ~5000 pares de `float` vecinos y distintos compartían el mismo texto sin ninguna marca. Ahora ninguno lo comparte.
+
+### 5.2. Presentación exacta (sin marca)
+
+Lo que se lee vuelve exactamente al mismo `float`. En este orden de preferencia:
+
+1. `0` para el cero exacto.
+2. Un entero con todas sus cifras (`|x| < 2⁵³`; más allá, `repr`).
+3. Una fracción legible (denominador ≤ 10 000, \|numerador\| ≤ 10⁶) cuyo `float` **es** el valor: `1/2`, `1/3`, `1/10`, `1/1024`, `5/3`.
+4. El decimal más corto que reproduce el `float` (`repr`), si tiene ≤ 15 cifras (`1000000000.25`, `1e-15`). 15 es `DBL_DIG`: un decimal así sobrevive idéntico al pasar por un `double`, así que **es** el valor.
+5. Si el valor es **exactamente** un racional de denominador ≤ 10 000 aunque necesite 16–17 cifras (`1000000000000000.5 = 2000000000000001/2`), su expansión decimal **exacta** (`Decimal`). Es un dato exacto, no ruido de nada. No se usa `repr`: el de `1000000000000000.25` es `1000000000000000.2`, que vuelve al mismo `float` pero no es el valor guardado.
+
+### 5.3. Presentación aproximada (`≈`)
+
+Para cualquier otro valor:
+
+- Si hay un entero, una fracción legible o un decimal de ≤ 10 cifras a **≤ 128 ulps**, se muestra ese número marcado: `≈2`, `≈3/10`, `≈5/3`, `≈1e-16`.
+- Si no, 10 cifras significativas: `≈3.141592654`.
+
+### 5.4. Umbrales (los mismos de la versión anterior, con otro uso)
+
+Los umbrales no cambiaron. Ahora sólo eligen *qué forma aproximada* se ofrece, nunca permiten omitir la marca.
+
+- **128 ulps.** Ruido real medido sobre 3 000 sistemas enteros 2×2–4×4 contra su solución racional exacta:
   - Cramer da resultados exactos.
-  - Gauss-Jordan y la inversa quedan a p99 ≈ 35 ulps y p99,9 ≈ 470 ulps. 128 ulps cubre el 99,7 %.
-  - Sobre 200 000 `float` aleatorios, 128 ulps con denominador ≤ 10 000 no aceptó ninguna fracción falsa (con 1024 ulps hubo 16). Tampoco convirtió en fracción ninguna constante (π, e, √2, √3, ln 2, φ…).
-  - El 0,3 % de ruido que excede 128 ulps no se muestra mal: sale como aproximación visible (`≈…`).
-- **Por qué denominador ≤ 10 000.** El 99,4 % de las soluciones exactas de esos sistemas tiene denominador ≤ 10 000. Con ≤ 1000, el tope de la ronda anterior, sólo el 83 %: se perdían fracciones como `1/1024`, `1/2048`, `1/4096` y una de cada seis soluciones de sistemas con enteros de un dígito.
-  - El tope de denominador ya no es lo que impide fracciones engañosas como `3126535/995207` para π. Eso lo garantiza exigir que la fracción **sea** el valor (presentación exacta) o esté a ≤ 128 ulps de él (simplificada).
-- **Por qué numerador ≤ 10⁶.** Evita que `1000000000.25` salga como `4000000001/4`.
-- **Por qué ≤ 10 cifras para el decimal cercano.** Con 14, cualquier número quedaría a menos de 128 ulps de su redondeo: π saldría `3.1415926535898`, presentado como exacto. Con 10, sólo un 0,017 % de floats aleatorios cae por casualidad tan cerca de un decimal corto, y ninguna constante.
+  - Gauss-Jordan y la inversa quedan a p99 ≈ 35 y p99,9 ≈ 470 ulps; 128 cubre el 99,7 %.
+  - Con 128 ulps y denominador ≤ 10 000 no se propuso ninguna fracción falsa sobre 200 000 floats aleatorios (con 1024 ulps hubo 16), ni para π, e, √2, √3, ln 2 o φ.
+- **Denominador ≤ 10 000.** Cubre el 99,4 % de las soluciones exactas de esos sistemas (con ≤ 1000, el 83 %), incluido `1/1024`.
+- **Numerador ≤ 10⁶.** Evita que `1000000000.25` se muestre como `4000000001/4`.
+- **≤ 10 cifras para el decimal cercano.** Con 14, cualquier número quedaría a < 128 ulps de su redondeo y π tendría un "decimal corto". Con 10, sólo un 0,017 % de floats aleatorios cae tan cerca por casualidad.
 
-### 5.3. Ejemplos
+### 5.5. Costo de la regla
 
-| Valor | Se muestra | Presentación |
+Medido sobre 500 sistemas enteros 2×2–4×4, el `≈` aparece en el 55 % de las soluciones de Gauss-Jordan, el 9 % de los valores de sus pasos y el 15 % de los de la inversa. Las soluciones de Cramer llevan marca sólo con denominador > 10 000 (1 %). Ningún valor queda simplificado sin marca.
+
+No es un falso positivo: el resultado de Gauss-Jordan suele quedar a algunos ulps del `double` más cercano a la fracción exacta (`1.6666666666666665` en vez de `1.6666666666666667 = float(5/3)`). Mostrarlo como `5/3` sin marca afirmaría algo falso. La forma de sacar esas marcas es que el algoritmo produzca el valor correcto, no que el formato lo esconda.
+
+### 5.6. Ejemplos
+
+| Valor | Se muestra | |
 |---|---|---|
 | `0.0`, `-0.0` | `0` | exacta |
-| `1000000000000001.0` | `1000000000000001` | exacta (antes `1e15`: se perdía una unidad representable) |
-| `1e20` | `1e20` | exacta (`repr`) |
-| `0.5`, `-2.5`, `0.1` | `1/2`, `-5/2`, `1/10` | exacta: `float(1/10) == 0.1` |
-| `1/1024`, `1/2048`, `3/4096` | `1/1024`, `1/2048`, `3/4096` | exacta |
-| `1000000000.25` | `1000000000.25` | exacta (antes `1000000000`) |
-| `-1000000000.75` | `-1000000000.75` | exacta (antes `-1000000001`: **otro entero**) |
+| `1000000000000001.0` | `1000000000000001` | exacta |
+| `1000000000000000.5`, `1000000000000000.25` | `1000000000000000.5`, `1000000000000000.25` | exacta (expansión decimal exacta) |
+| `1000000000.25`, `-1000000000.75` | idem | exacta |
+| `1/1024`, `1/3`, `0.1`, `0.3`, `-2.5` | `1/1024`, `1/3`, `1/10`, `3/10`, `-5/2` | exacta: la fracción es el valor |
+| `0.0015` | `3/2000` | exacta |
 | `1e-15`, `2.5e-10` | `1e-15`, `2.5e-10` | exacta |
-| `0.0015` | `3/2000` | exacta: la fracción es el valor |
-| `1.9999999999999998` | `2` | simplificada (1 ulp) |
-| `0.1 + 0.2` = `0.30000000000000004` | `3/10` | simplificada (1 ulp) |
-| `1.0000000000000001e-16` (det calculado de `diag(1e-8,1e-8)`) | `1e-16` | simplificada (1 ulp) |
-| `1000000000000000.5` | `1000000000000000` | simplificada: necesita 17 cifras y está a 4 ulps del entero (la diferencia, 0.5, es 5·10⁻¹⁶ relativo) |
-| `pi`, `sqrt(2)` | `≈3.141592654`, `≈1.414213562` | aproximación visible |
-| `1/12347` | `≈8.099133393e-5` | aproximación visible (denominador > 10 000) |
-| `inf`, `nan` | `inf`, `nan` | antes reventaba en `int()` |
+| `1e20` | `1e20` | exacta |
+| `0.1 + 0.2` | `≈3/10` | no es `float(3/10)` |
+| `1.9999999999999998` | `≈2` | |
+| `1.6666666666666665` (Gauss-Jordan) | `≈5/3` | |
+| `1.0000000000000001e-16` (det calculado de `diag(1e-8,1e-8)`) | `≈1e-16` | |
+| `10000000000.00006` | `≈10000000000` | tipeado con 16 cifras |
+| `π` | `≈3.141592654` | |
+| `1/12347` | `≈8.099133393e-5` | denominador > 10 000 |
+| `inf`, `nan` | `inf`, `nan` | |
 
-### 5.4. Reglas anteriores descartadas
+Garantías, todas verificadas en `tests/test_formato_y_representabilidad.py`:
 
-- `abs(x − int(x)) < 1e-9` mostraba como `"0"` cualquier valor menor que `1e-9`.
-- `limit_denominator()` sin tope redondeaba a `0` todo lo menor que `~5e-7`.
-- La tolerancia relativa `1e-9` de la ronda anterior se medía contra toda la magnitud: a `1e9` dejaba un margen de `1.0`.
-
-Ninguna sobrevive:
-
-- **Ningún valor finito distinto de cero se muestra como `0`.**
-- **Dos `float` cuya diferencia supera 128 ulps nunca se muestran iguales sin `≈`.**
-
-### 5.5. Lo que significa cada presentación
-
-1. **Cero matemático** (decidido por el algoritmo): se escribe `0`. Si la aritmética había dado ruido, el paso lo explica.
-2. **Presentación exacta**: lo que se ve es el valor guardado.
-3. **Presentación simplificada**: lo que se ve está a ≤ 128 ulps del valor guardado.
-4. **Aproximación visible** (`≈`): lo que se ve son 10 cifras de un valor que no tiene una forma corta.
+- ningún valor finito distinto de cero se muestra como `0`;
+- sin `≈`, el texto vuelve al mismo `float` (y, en el caso 5, es su valor exacto);
+- dos `float` distintos nunca comparten un texto sin marca;
+- con `≈` y forma simple, lo mostrado está a ≤ 128 ulps;
+- con `≈` y 10 cifras, a ≤ 5·10⁻¹⁰ relativo.

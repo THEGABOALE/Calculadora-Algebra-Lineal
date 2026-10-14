@@ -372,8 +372,8 @@ class TestFormatNumber(unittest.TestCase):
     CASOS = [
         (0.0, '0'), (-0.0, '0'),
         (1e-15, '1e-15'), (-1e-15, '-1e-15'), (1e-7, '1e-7'), (2.5e-10, '2.5e-10'), (1e-16, '1e-16'),
-        (2.0, '2'), (-7.0, '-7'), (1.9999999999999998, '2'), (123.0, '123'),
-        (0.5, '1/2'), (-0.5, '-1/2'), (1 / 3, '1/3'), (-2 / 7, '-2/7'), (0.30000000000000004, '3/10'),
+        (2.0, '2'), (-7.0, '-7'), (1.9999999999999998, '≈2'), (123.0, '123'),
+        (0.5, '1/2'), (-0.5, '-1/2'), (1 / 3, '1/3'), (-2 / 7, '-2/7'), (0.30000000000000004, '≈3/10'),
         (0.001, '1/1000'), (0.0015, '3/2000'),
         (math.pi, '≈3.141592654'), (1e20, '1e20'), (-3.5e-12, '-3.5e-12'),
         (float('inf'), 'inf'), (float('-inf'), '-inf'),
@@ -427,7 +427,9 @@ class TestApiYCli(unittest.TestCase):
         r = self.client.post('/api/v1/matrix/determinant', {'method': 'cofactors', 'A': diag(1e-8, 1e-8)}, format='json')
         self.assertEqual(r.status_code, 200, r.data)
         self.assertTrue(cerca(r.data['result']['determinant'], 1e-16))
-        self.assertEqual(r.data['result']['determinant_pretty'], '1e-16')
+        # 1e-8·1e-8 en coma flotante da 1.0000000000000001e-16, no 1e-16
+        # exacto: se muestra marcado como aproximación.
+        self.assertEqual(r.data['result']['determinant_pretty'], '≈1e-16')
 
     def test_reduce_cramer_1e_5_I3(self):
         r = self.client.post('/api/v1/matrix/reduce', {'method': 'cramer', 'A': diag(1e-5, 1e-5, 1e-5), 'b': [1.0, 2.0, 3.0]}, format='json')
@@ -437,7 +439,7 @@ class TestApiYCli(unittest.TestCase):
         self.assertIs(s['is_singular'], False)
         for xi, esperado in zip(s['solution'], [1e5, 2e5, 3e5]):
             self.assertTrue(cerca(xi, esperado, 1e-9))
-        self.assertEqual(s['determinant_pretty'], '1e-15')
+        self.assertEqual(s['determinant_pretty'], '≈1e-15')   # calculado: 1.0000000000000002e-15
         # los n+1 determinantes y el mismo shape de siempre
         self.assertEqual(len(r.data['result']['determinants']), 4)
         self.assertEqual(set(s), {'status', 'solution_type', 'solution', 'basic_vars', 'free_vars',

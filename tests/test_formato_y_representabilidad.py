@@ -11,9 +11,10 @@ Tercera vuelta de tolerancias numéricas:
    y pérdida de representabilidad son cosas distintas.
 
 Política de format_number bajo prueba (ver documentation/CriterioNumerico.md,
-sección 5): exacta (el valor guardado), simplificada (a <= 128 ulps de un
-entero / fracción legible / decimal de <= 10 cifras, sólo si el valor
-necesita 16-17 cifras) o aproximación visible ("≈" + 10 cifras).
+sección 5): sin marca el texto ES el valor guardado; cualquier otra cosa
+lleva "≈" (el número simple a <= 128 ulps, o 10 cifras). Una versión
+intermedia mostraba sin marca esas simplificaciones; ver
+TestMarcaDeAproximacion.
 """
 import io
 import math
@@ -85,12 +86,13 @@ class TestNoOcultaDiferencias(unittest.TestCase):
 
 
 class TestRuidoDeComaFlotante(unittest.TestCase):
-    """Presentación simplificada: sólo ruido de <= 128 ulps."""
+    """Ruido de <= 128 ulps: se ofrece el número simple, siempre con "≈"."""
 
     def test_cerca_de_enteros(self):
-        for v, esperado in [(1.9999999999999998, '2'), (2.0000000000000004, '2'),
-                            (99999.99999999999, '100000'), (-6.999999999999999, '-7'),
-                            (3 + 128 * math.ulp(3.0), '3')]:
+        # Ruido cerca de un entero: se ofrece el entero, MARCADO con "≈".
+        for v, esperado in [(1.9999999999999998, '≈2'), (2.0000000000000004, '≈2'),
+                            (99999.99999999999, '≈100000'), (-6.999999999999999, '≈-7'),
+                            (3 + 128 * math.ulp(3.0), '≈3')]:
             with self.subTest(v=v):
                 self.assertEqual(format_number(v), esperado)
 
@@ -100,25 +102,31 @@ class TestRuidoDeComaFlotante(unittest.TestCase):
 
     def test_cero_coma_uno_mas_cero_coma_dos(self):
         self.assertEqual(0.1 + 0.2, 0.30000000000000004)
-        self.assertEqual(format_number(0.1 + 0.2), '3/10')
-        self.assertEqual(format_number(0.1 + 0.7), '4/5')
+        # 0.1 + 0.2 no es 3/10 en coma flotante: se reconoce la fracción,
+        # pero marcada. 0.3 tipeado sí es exactamente float(3/10).
+        self.assertEqual(format_number(0.1 + 0.2), '≈3/10')
+        self.assertEqual(format_number(0.3), '3/10')
+        self.assertEqual(format_number(0.1 + 0.7), '≈4/5')
 
     def test_ruido_alrededor_de_decimales_cortos(self):
         # det calculado de diag(1e-8, 1e-8) es 1.0000000000000001e-16
-        self.assertEqual(format_number(1.0000000000000001e-16), '1e-16')
-        self.assertEqual(format_number(1.0000000000000002e-15), '1e-15')
+        self.assertEqual(format_number(1.0000000000000001e-16), '≈1e-16')
+        self.assertEqual(format_number(1.0000000000000002e-15), '≈1e-15')
+        self.assertEqual(format_number(1e-16), '1e-16')
 
-    def test_lo_que_se_muestra_sin_aproximar_esta_a_128_ulps(self):
-        # Propiedad: si no hay "≈", lo mostrado está a <= 128 ulps del valor.
-        # (Dos floats a más de 256 ulps nunca comparten salida sin "≈".)
+    def test_sin_marca_es_exacto_y_con_marca_simple_esta_cerca(self):
+        # Sin "≈": el texto vuelve EXACTAMENTE al mismo float.
+        # Con "≈" y forma simple: está a <= 128 ulps.
         random.seed(12)
         for _ in range(20000):
             v = random.uniform(-1, 1) * 10 ** random.uniform(-15, 15)
             s = format_number(v)
-            if s.startswith('≈'):
-                continue
             with self.subTest(v=v, s=s):
-                self.assertLessEqual(abs(valor_mostrado(s) - v), ULPS * math.ulp(v))
+                if s.startswith('≈'):
+                    # 10 cifras significativas: error relativo <= 5e-10
+                    self.assertLessEqual(abs(valor_mostrado(s[1:]) - v), 5e-10 * abs(v))
+                else:
+                    self.assertEqual(valor_mostrado(s), v)
 
 
 class TestFraccionesDidacticas(unittest.TestCase):
@@ -283,6 +291,67 @@ class TestDocumentacionConsistente(unittest.TestCase):
     def test_docstrings_avisan_el_subdesbordamiento(self):
         self.assertIn('subdesbordamiento', mt.determinant.__doc__)
         self.assertIn('subdesborda', mt.is_singular.__doc__)
+
+
+class TestMarcaDeAproximacion(unittest.TestCase):
+    """Cuarta vuelta: ninguna simplificación sin "≈".
+
+    El formateador no distingue ruido de dato (10000000000.00006 tipeado y
+    1.9999999999999998 calculado necesitan ambos 16-17 cifras), así que la
+    regla es: sin "≈" el texto ES el valor guardado; si no, va marcado.
+    """
+
+    def test_grandes_con_parte_fraccionaria_exacta(self):
+        # Racionales exactos de denominador chico: dato, se muestran completos
+        # con su expansión decimal EXACTA (no repr: repr de ...0.25 es ...0.2).
+        for v, esperado in [(1000000000000000.5, '1000000000000000.5'),
+                            (-1000000000000000.5, '-1000000000000000.5'),
+                            (1000000000000000.25, '1000000000000000.25'),
+                            (-1000000000000000.125, '-1000000000000000.125'),
+                            (4503599627370495.5, '4503599627370495.5'),
+                            (1000000000.25, '1000000000.25'),
+                            (-1000000000.75, '-1000000000.75')]:
+            with self.subTest(v=v):
+                s = format_number(v)
+                self.assertEqual(s, esperado)
+                self.assertEqual(Fraction(s), Fraction(v))      # exacto, no sólo round-trip
+
+    def test_decimales_de_16_cifras_tipeados_van_marcados(self):
+        # Antes: "10000000000" y "123456789012" sin marca.
+        for v, esperado in [(10000000000.00006, '≈10000000000'),
+                            (123456789012.0001, '≈123456789012'),
+                            (99999999999.99998, '≈100000000000')]:
+            with self.subTest(v=v):
+                self.assertEqual(format_number(v), esperado)
+
+    def test_fracciones_didacticas_sin_marca_cuando_son_el_valor(self):
+        for v, esperado in [(1 / 1024, '1/1024'), (1 / 3, '1/3'), (5 / 3, '5/3'), (0.1, '1/10'),
+                            (0.3, '3/10'), (-2.5, '-5/2'), (23 / 7, '23/7')]:
+            with self.subTest(v=v):
+                self.assertEqual(format_number(v), esperado)
+
+    def test_resultado_de_gauss_con_ruido_va_marcado(self):
+        # 1.6666666666666665 no es el double más cercano a 5/3
+        # (1.6666666666666667): se reconoce la fracción, marcada.
+        self.assertEqual(format_number(1.6666666666666665), '≈5/3')
+
+    def test_constantes_y_chicos(self):
+        self.assertEqual(format_number(math.pi), '≈3.141592654')
+        self.assertEqual(format_number(1e-15), '1e-15')
+        self.assertEqual(format_number(-2.5e-10), '-2.5e-10')
+
+    def test_vecinos_distintos_nunca_comparten_texto_sin_marca(self):
+        # v y el float siguiente: si ninguno lleva "≈", sus textos difieren.
+        random.seed(13)
+        valores = [random.uniform(-1, 1) * 10 ** random.uniform(-15, 16) for _ in range(5000)]
+        valores += [float(k) + f for k in (10 ** 9, 10 ** 12, 10 ** 15) for f in (0.0, 0.125, 0.25, 0.5, 0.75)]
+        for v in valores:
+            w = math.nextafter(v, math.inf)
+            a, b = format_number(v), format_number(w)
+            if a.startswith('≈') or b.startswith('≈'):
+                continue
+            with self.subTest(v=v, w=w):
+                self.assertNotEqual(a, b)
 
 
 if __name__ == '__main__':
