@@ -27,6 +27,7 @@ de `core/` no se enteran del cambio.
 
 from __future__ import annotations
 import copy
+import sys
 from typing import Any, Callable, Dict, List, Optional
 from utils.EquationFunctions import num_to_sub, format_number, parse_fraction
 
@@ -95,37 +96,47 @@ def print_frame(frame: Frame, show_det: bool = True, sep: str = "-"*40)->None:
     
 
 def print_equation(matriz: list[list], vector: list[float]) -> str:
+    """Escribe el sistema Ax = b tal como lo reciben los métodos.
+
+    - Se omite un término sólo si su coeficiente es 0 EXACTO: antes se
+      omitía con |coef| < 1e-12, y un sistema con coeficientes ~1e-13
+      aparecía con ecuaciones distintas de las que el método resolvía.
+    - Una ecuación sin términos se escribe "0 = c" (antes " = c").
+    - El primer término conserva su signo (antes -2x₁ salía "2x₁").
+    - Coeficientes que format_number escribe como fracción o como
+      aproximación van entre paréntesis: "(1/2)x₁", no "1/2x₁" (que se lee
+      como 1/(2x₁)); "(≈2)x₁".
+    """
     filas = len(matriz)
-    columnas = len(matriz[0])
+    columnas = len(matriz[0]) if filas else 0
     lines = []
     for i in range(filas):
         terms = []
         for j in range(columnas):
             coef = matriz[i][j]
-            if abs(coef) < 1e-12:
+            if coef == 0:
                 continue
-            
+
             var = f"x{num_to_sub(j+1)}"
-            coef_str = format_number(abs(coef))
-            
-            if coef == 1:
-                term = f"{var}"
-            elif coef == -1:
-                term = f"-{var}"
+            magnitud = abs(coef)
+            if magnitud == 1:
+                cuerpo = var
             else:
-                term =f"{coef_str}{var}"
-                
-            if terms:
-                if coef > 0:
-                    term = f"+ {term}"
-                else:
-                    term = f"- {coef_str}{var}" if abs(coef) != 1 else f"-{var}"
+                coef_str = format_number(magnitud)
+                if "/" in coef_str or coef_str.startswith("≈"):
+                    coef_str = f"({coef_str})"
+                cuerpo = f"{coef_str}{var}"
+
+            if not terms:
+                term = f"-{cuerpo}" if coef < 0 else cuerpo
+            else:
+                term = f"- {cuerpo}" if coef < 0 else f"+ {cuerpo}"
             terms.append(term)
-            
+
+        lhs = " ".join(terms) if terms else "0"
         rhs = format_number(vector[i])
-        line = " ".join(terms) + f" = {rhs}"
-        lines.append(line)
-        
+        lines.append(f"{lhs} = {rhs}")
+
     return "\n".join(lines)
 
 def print_summary(result: Optional[Any]):
@@ -271,8 +282,18 @@ def compare_determinant_methods(cramer_obj, matrix: List[List[float]]):
     for method, det_val in results.items():
         print(f"{method:15s}: {format_number(det_val)}")
 
-    # Verificar consistencia
-    all_equal = all(abs(det_val - det1) < 1e-10 for det_val in results.values())
+    # Verificar consistencia. La diferencia tolerable entre dos cálculos de
+    # det(A) es el redondeo que pueden acumular: proporcional a
+    # n·eps·Π_i Σ_j |a_ij| (cota de Hadamard por filas), con el mismo factor
+    # 1e4 que el criterio de core/matrix_tools.py (no se importa de ahí para
+    # no crear un import circular: matrix_tools importa este módulo). El
+    # < 1e-10 absoluto de antes daba "iguales" a cualquier par de
+    # determinantes ~1e-15 y "distintos" a dos cálculos correctos ~1e10.
+    escala = 1.0
+    for fila in matrix:
+        escala *= sum(abs(x) for x in fila)
+    margen = 1e4 * n * sys.float_info.epsilon * escala
+    all_equal = all(abs(det_val - det1) <= margen for det_val in results.values())
     if all_equal:
         print("\n✓ Todos los métodos producen el mismo resultado")
     else:
@@ -280,10 +301,16 @@ def compare_determinant_methods(cramer_obj, matrix: List[List[float]]):
     print("═" * 60)
 
 # ---- NUEVO/ACTUALIZADO: forma paramétrica desde RREF ----
-def print_parametric_solution_from_rref(U: List[List[float]], tol: float = 1e-12, param_base: str = "s") -> str:
+def print_parametric_solution_from_rref(U: List[List[float]], tol: float = 0.0, param_base: str = "s") -> str:
     """
     Recibe una aumentada en RREF (m x (n+1)) y devuelve una representación
-    legible de la solución en forma paramétrica:
+    legible de la solución en forma paramétrica.
+
+    `tol` = 0.0 (default): cero y "pivote = 1" exactos. La RREF viene de
+    GaussJordanMethod, que ya dejó el ruido en 0.0 y los pivotes en 1.0 con
+    el criterio de core/matrix_tools.py; el 1e-12 absoluto de antes
+    descartaba coeficientes reales ~1e-13. Un tol > 0 sigue siendo un
+    umbral absoluto.
       - Variables libres = parámetros s1, s2, ...
       - Variables básicas en función de esos parámetros.
     Si el sistema es inconsistente, lo indica.

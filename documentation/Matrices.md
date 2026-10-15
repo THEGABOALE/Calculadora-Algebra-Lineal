@@ -48,25 +48,28 @@ Cada una arma `texto` con una línea por fila del resultado (`add_matrices`/`sub
 ## 5. Rango y núcleo
 
 ```py
-_rref_matrix(A, tol=1e-12) -> (M_rref, rango)
-rank_of(A, tol=1e-12) -> int
-nullspace_vector(A, tol=1e-12) -> Optional[List[float]]
+_rref_matrix(A, tol=None) -> (M_rref, rango)
+rank_of(A, tol=None) -> int
+system_ranks(A, b, tol=None) -> (rango(A), rango([A|b]))
+nullspace_vector(A, tol=None) -> Optional[List[float]]
 ```
 
-`rank_of` lleva una copia de `A` a RREF (pivoteo parcial por filas) y cuenta los pivotes no nulos. `nullspace_vector` intenta construir un vector `x ≠ 0` tal que `Ax = 0`: si el sistema homogéneo asociado sólo tiene la solución trivial (rango = columnas), devuelve `None`; si no, fija la primera variable libre en `1` y despeja las básicas.
+Con `tol=None` (el default) rige el criterio de cero por cota de redondeo descripto en [`CriterioNumerico.md`](CriterioNumerico.md); un `tol` numérico se usa como umbral absoluto.
+
+`rank_of` lleva una copia de `A` a RREF (pivoteo parcial por filas) y cuenta los pivotes no nulos. `system_ranks` hace lo mismo sobre `[A|b]` en una sola eliminación y devuelve los dos rangos para Rouché–Frobenius. `nullspace_vector` intenta construir un vector `x ≠ 0` tal que `Ax = 0`: si el sistema homogéneo asociado sólo tiene la solución trivial (rango = columnas), devuelve `None`; si no, fija la primera variable libre en `1` y despeja las básicas.
 
 ---
 
 ## 6. Determinante, singularidad e inversa
 
 ```py
-determinant(A, tol=1e-12) -> float
-is_singular(A, tol=1e-12) -> Optional[bool]
-inverse(A, tol=1e-12, frame=None, b=None, check_props=True) -> (Ainv, texto)
+determinant(A, tol=None) -> float
+is_singular(A, tol=None) -> Optional[bool]
+inverse(A, tol=None, frame=None, b=None, check_props=True) -> (Ainv, texto)
 ```
 
-- `determinant`: reducción tipo Gauss-Jordan con pivoteo parcial, acumulando el producto de los pivotes y el signo de los intercambios de fila. Lanza `ValueError` si `A` no es cuadrada. Devuelve `0.0` si `A` es singular (no lanza excepción en ese caso).
-- `is_singular`: `None` si `A` no es cuadrada; si no, `abs(determinant(A)) <= tol`.
+- `determinant`: reducción tipo Gauss-Jordan con pivoteo parcial, acumulando el producto de los pivotes y el signo de los intercambios de fila. Lanza `ValueError` si `A` no es cuadrada. Si `A` es numéricamente singular (rango < n, la misma eliminación que `rank_of`) devuelve `0.0` exacto; si no, el producto de los pivotes **sin** compararlo contra ningún umbral, así que `det(1e-5·I₃) = 1e-15` (antes daba `0`). El producto se acumula como mantisa y exponente, así que un producto parcial no subdesborda (`diag(1e-200, 1e-200, 1e300)` da `1e-100`). **Ojo:** si el det de una matriz invertible no es representable en un `double` (`1e-110·I₃`, det = `1e-330`), devuelve `0.0` (o `inf` si desborda) con un `RuntimeWarning`. Por eso `determinant(A) == 0.0` no prueba singularidad: para eso está `is_singular` (ver [`CriterioNumerico.md`](CriterioNumerico.md), sección 3.1).
+- `is_singular`: `None` si `A` no es cuadrada; si no, `rank_of(A) < n`.
 - `inverse`: Gauss-Jordan sobre `[A | I]`. Si `A` es singular, **no** intenta la reducción: lanza `ValueError` con un mensaje pedagógico que incluye el determinante, el rango, y un vector no trivial del núcleo si existe. Si `A` es invertible, además de `Ainv` calcula la matriz de cofactores, la adjunta, y `Adj(A)/det(A)` como verificación cruzada del resultado.
 
 **El parámetro `frame`:** si se pasa un `dict`, `inverse()` llama a `log_step` en cada paso (matriz aumentada inicial, cada operación elemental, RREF, resultado, cofactores, adjunta, determinante) — el mismo formato que usan `GaussJordanMethod`/`GaussMethod`, así que se puede imprimir con `print_frame` (CLI) o `frame_to_html` (web) sin ningún adaptador. Es la única función de este archivo que integra directamente con ese contrato; las demás sólo devuelven texto plano.
@@ -79,7 +82,7 @@ inverse(A, tol=1e-12, frame=None, b=None, check_props=True) -> (Ainv, texto)
 
 ```py
 verify_transpose_props(A, B=None) -> str
-verify_inverse_props(A, B=None, tol=1e-12) -> str
+verify_inverse_props(A, B=None, tol=None) -> str
 ```
 
 Devuelven un bloque de texto con cada propiedad marcada `OK`, `FALSO`, o `No evaluada` (cuando falta `B` o las dimensiones no son compatibles para esa propiedad puntual):

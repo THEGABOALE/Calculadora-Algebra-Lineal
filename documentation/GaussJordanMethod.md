@@ -29,7 +29,7 @@ GaussJordanMethod(matriz: List[List[float]], b: List[float])
 
 - `b` es obligatorio: `ValueError` si es `None`.
 - Valida forma y tipo **antes** de construir la aumentada, con mensajes explícitos: `A` no vacía y lista de listas, todas las filas del mismo largo, todos los valores de `A` y `b` numéricos (`ValueError`/`TypeError`). Esto es deliberado — sin estas validaciones, el `list(map(float, ...))` de más abajo reventaría con un error genérico de `float()` en vez de decir qué está mal.
-- Atributos: `self.A`, `self.b` (copias originales), `self.tolerance = 1e-12`, `self.frame: List[Dict[str, Any]] = []`, `self.pivots: List[Tuple[int,int]] = []`, `self.determinante: Optional[float] = None` (se llena en `run()`), `self.is_homogeneous` (`True` si todos los `b_i ≈ 0`).
+- Atributos: `self.A`, `self.b` (copias originales), `self.tolerance = 1e-12` (se conserva por compatibilidad, **ya no decide nada**: ver sección 7), `self.frame: List[Dict[str, Any]] = []`, `self.pivots: List[Tuple[int,int]] = []`, `self.determinante: Optional[float] = None` (se llena en `run()`), `self.is_homogeneous` (`True` si todos los `b_i` son **exactamente** 0: `b` es dato, y un `b_i = 1e-13` tipeado no es cero).
 
 ---
 
@@ -46,7 +46,7 @@ Lista ordenada de pasos (no un diccionario), igual que `GaussMethod` — ver `do
 Orquestador. Reinicia `self.frame`, y en orden:
 
 1. Registra si el sistema es homogéneo o no (`tag="homogeneity_check"`).
-2. Intenta calcular `determinant(self.A)` y `is_singular()` (via `core.matrix_tools`), y los registra — envuelto en `try/except` amplio para no interrumpir el proceso si `A` no es cuadrada o algo falla. **Esto sí se calcula y se reporta**, a diferencia de lo que decía una versión anterior de esta documentación ("no se informa el determinante porque se escalan filas"): el determinante se obtiene con `core.matrix_tools.determinant`, que es un cálculo aparte (Gauss con pivoteo parcial, sin las normalizaciones de RREF), no derivado de la reducción de Gauss-Jordan en curso.
+2. Intenta calcular `determinant(self.A)` y la singularidad de `A` con `core.matrix_tools.is_singular(self.A)` **sobre la matriz original**, y los registra (`tag="singularity"`: "Estado de singularidad de A: singular (rango(A) < n): no hay solución única; si Ax = b es compatible … o incompatible se decide al eliminar" / "no singular (rango(A) = n): Ax = b tiene solución única"). Antes se usaba el método `self.is_singular()`, que a esa altura leía con `analyze_argumented` una matriz **todavía sin escalonar**: cada fila no nula "tenía pivote", y `[[1,2],[2,4]]` salía "no singular" debajo de "Determinante de A = 0". Todo esto vaenvuelto en `try/except` amplio para no interrumpir el proceso si `A` no es cuadrada o algo falla. **Esto sí se calcula y se reporta**, a diferencia de lo que decía una versión anterior de esta documentación ("no se informa el determinante porque se escalan filas"): el determinante se obtiene con `core.matrix_tools.determinant`, que es un cálculo aparte (Gauss con pivoteo parcial, sin las normalizaciones de RREF), no derivado de la reducción de Gauss-Jordan en curso.
 3. `forward_elimination()`.
 4. `backward_elimination_and_normalize()`.
 
@@ -60,7 +60,7 @@ Recorre los pivotes de abajo hacia arriba: normaliza cada uno a 1 (`_scale_row`)
 
 ### `analyze() -> Dict[str, Any]`
 
-`analyze_argumented(self.matriz, tol=self.tolerance)` — ver `documentation/GaussMethod.md`, sección 6, para las claves exactas.
+`analyze_argumented(self.matriz)`, sin umbral: la eliminación ya dejó el ruido en `0.0` exacto. Ver `documentation/GaussMethod.md`, sección 6, para las claves exactas.
 
 ### `solve_and_log() -> Dict[str, Any]`
 
@@ -72,14 +72,19 @@ El método más rico de la clase. Además del resumen y la solución particular 
 
 **Shape del retorno:**
 
-- Si `status == "inconsistent"`: `{**info, "solution": None}` (donde `info` es lo que devuelve `analyze()`).
+- Si `status == "inconsistent"`: `{**info, "solution": None, "parametric_solution": None, "tipo_sistema", "dependencia", "determinant", "is_singular"}`. Antes faltaban las claves extra y `r["is_singular"]` daba `KeyError` justo en el caso incompatible.
 - Si no: `{**result, "parametric_solution", "tipo_sistema", "dependencia", "determinant", "is_singular"}`, donde `result` es lo que devuelve `solve_from_upper(...)`. Es decir, las claves finales son: `m, n, pivots, rank, basic_vars, free_vars, inconsistent_rows, status, solution, parametric_solution, tipo_sistema, dependencia, determinant, is_singular`.
 
 Este shape es **más rico** que el de `GaussMethod.solve_and_log()` (que devuelve el dict crudo de `solve_from_upper`, sin extras) — es la diferencia real entre los dos métodos a nivel de API de Python, más allá del algoritmo.
 
 ### `is_singular() -> Optional[bool]`
 
-`None` si `A` no es cuadrada. Si es cuadrada, `rank(A) < n` según `analyze()`.
+`None` si `A` no es cuadrada. Si es cuadrada, `rank(A) < n`. Válido antes y después de eliminar:
+
+- **Después** de `forward_elimination()`, el rango sale de `analyze()` sobre la matriz escalonada.
+- **Antes**, de `core.matrix_tools.is_singular(self.A)`, porque `analyze()` sólo sabe leer el rango de una matriz ya escalonada.
+
+Ambos usan el mismo criterio de cero.
 
 ---
 
@@ -97,9 +102,11 @@ Este shape es **más rico** que el de `GaussMethod.solve_and_log()` (que devuelv
 
 ## 7. Consideraciones numéricas
 
-- **Tolerancia**: `1e-12` (levemente más laxa que la de `GaussMethod`, `1e-13`).
+- **Criterio de cero**: el de [`CriterioNumerico.md`](CriterioNumerico.md), el mismo que Gauss, `matrix_tools` y Cramer. `_select_pivot_row`, `_row_elim` y `_scale_row` llevan en paralelo la cota de redondeo de cada entrada (`CotasDeRedondeo`), y lo que es ruido queda en `0.0` exacto. Por eso la RREF final tiene pivotes iguales a `1.0` exacto y ceros exactos, y `analyze_argumented` y `print_parametric_solution_from_rref` la leen sin umbral.
+  - **Antes** se usaba `1e-12` absoluto. Con `1e-13·[[2,1],[1,3]]` no había pivotes y salía "infinitas" (era un `expectedFailure`; hoy pasa como test normal). `0 = 1e-13` salía compatible. `1e8·[[1,2,3],[4,5,6],[7,8,9]]` con `b` en la imagen salía "incompatible".
+  - **Matrices mal condicionadas:** rige la misma zona ambigua que en `CriterioNumerico.md` §4.
 - **Pivote parcial por filas**; no se intercambian columnas.
-- **Determinante**: se calcula aparte con `core.matrix_tools.determinant` sobre `self.A` original, no derivado de las operaciones de RREF (que escalan filas y alterarían el determinante por esos factores si se intentara leerlo de la diagonal final).
+- **Determinante**: se calcula aparte con `core.matrix_tools.determinant` (criterio por cota de redondeo, sin `tol` absoluto) sobre `self.A` original. Si no es representable en coma flotante, el paso lo dice en vez de mostrar `0`. El cálculo esno derivado de las operaciones de RREF (que escalan filas y alterarían el determinante por esos factores si se intentara leerlo de la diagonal final).
 
 ---
 

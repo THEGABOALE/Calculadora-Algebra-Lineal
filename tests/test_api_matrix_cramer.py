@@ -148,9 +148,11 @@ class TestCramerNMasUnDeterminantes(unittest.TestCase):
             self.assertAlmostEqual(det_i['value'] / det_a, xi, places=9)
 
     def test_sistema_singular_igual_trae_los_n_mas_1(self):
-        # Con det(A)=0 no hay solución, pero los determinantes de Cramer se
-        # calculan igual: son justamente los que distinguen inconsistente de
-        # infinitas. Mostrar sólo det(A) escondería esa distinción.
+        # Con det(A)=0 no hay solución única, pero los determinantes de
+        # Cramer se calculan igual: algún det(Aᵢ) ≠ 0 prueba que el sistema
+        # es inconsistente (todos en 0 no prueba nada; ese caso lo decide el
+        # análisis de rangos, ver test_cramer_clasificacion_singular.py).
+        # Mostrar sólo det(A) escondería esa información.
         dets = self._determinantes([[1.0, 1.0], [1.0, 1.0]], [1.0, 2.0])
         self.assertEqual(len(dets), 3)
 

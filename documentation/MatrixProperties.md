@@ -18,14 +18,14 @@ Documento técnico sobre el endpoint `matrix/properties`: rango, singularidad y 
 ## 2. `core/matrix_tools.py` — las tres funciones
 
 ```py
-rank_of(A: Matrix, tol: float = 1e-12) -> int
-nullspace_vector(A: Matrix, tol: float = 1e-12) -> List[float] | None
-is_singular(A: Matrix, tol: float = 1e-12) -> bool | None
+rank_of(A: Matrix, tol: Optional[float] = None) -> int
+nullspace_vector(A: Matrix, tol: Optional[float] = None) -> List[float] | None
+is_singular(A: Matrix, tol: Optional[float] = None) -> bool | None
 ```
 
 - `rank_of`: lleva una copia de `A` a RREF (pivoteo parcial por filas, vía `_rref_matrix`) y cuenta los pivotes no nulos. Acepta matrices rectangulares.
 - `nullspace_vector`: intenta construir un vector `x ≠ 0` tal que `Ax = 0`. Si el sistema homogéneo asociado sólo tiene la solución trivial (rango = columnas), devuelve `None`. Si no, fija la primera variable libre en `1` y despeja las básicas. También acepta rectangulares.
-- `is_singular`: **sólo está definida para matrices cuadradas**. Si `A` no es cuadrada, devuelve `None` — no `False`, no una excepción. Si es cuadrada, `abs(determinant(A)) <= tol`.
+- `is_singular`: **sólo está definida para matrices cuadradas**. Si `A` no es cuadrada, devuelve `None` — no `False`, no una excepción. Si es cuadrada, `rank_of(A) < n`: el mismo criterio de cero que `rank_of` y `determinant` (ver [`CriterioNumerico.md`](CriterioNumerico.md)), así que una matriz invertible de entradas chicas como `1e-5·I` ya no sale singular.
 
 Ninguna de las tres exige `A` cuadrada salvo `is_singular`, y esa exigencia se resuelve devolviendo `None`, no rechazando la entrada.
 

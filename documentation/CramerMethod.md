@@ -17,7 +17,8 @@ Para cada incógnita `xᵢ` se construye una matriz `Aᵢ` reemplazando la colum
 
 **Limitaciones, ambas deliberadas y documentadas en el código:**
 - Sólo acepta **sistemas cuadrados** (`n` ecuaciones, `n` incógnitas) — `__init__` lanza `ValueError` si no.
-- Si `det(A) = 0`, Cramer puede distinguir *inconsistente* de *infinitas soluciones* (mirando si algún `det(Aᵢ) ≠ 0`), pero **no parametriza** las infinitas soluciones — no identifica variables libres ni construye una base del núcleo. Esa parte es trabajo de Gauss-Jordan (`core/gauss_jordan.py`), no de esta regla.
+- Si `det(A) = 0`, la regla de Cramer **sólo a veces** distingue *inconsistente* de *infinitas soluciones*: algún `det(Aᵢ) ≠ 0` prueba que es inconsistente, pero que todos sean `0` **no** prueba nada (ver sección 4.1). En ese caso la clasificación la hace un procedimiento auxiliar que no es Cramer: comparar rangos (Rouché–Frobenius).
+- Aun clasificado, Cramer **no parametriza** las infinitas soluciones — no identifica variables libres ni construye una base del núcleo. Esa parte es trabajo de Gauss-Jordan (`core/gauss_jordan.py`), no de esta regla.
 
 ---
 
@@ -29,7 +30,7 @@ CramerMethod(matriz: List[List[float]], b: List[float])
 
 - Valida `len(b) == len(matriz)`.
 - Valida que `matriz` sea cuadrada (`n x n`) — si no, `ValueError` explícito ("CramerMethod sólo acepta matrices cuadradas...").
-- Copia `matrix_A` y `vector_b`; inicializa `n_variables`, `tolerance = 1e-12`, `frame: List[Dict[str, Any]] = []`, `determinant_A`, `solution`.
+- Copia `matrix_A` y `vector_b`; inicializa `n_variables`, `tolerance = 1e-12` (sólo la usa `verify_solution`; la singularidad se decide por rango), `frame: List[Dict[str, Any]] = []`, `determinant_A`, `solution`.
 
 `self.frame` es una **lista** ordenada de pasos, no un diccionario — cada paso tiene su propio índice, así que dos pasos con el mismo texto (p. ej. `n` matrices "Matriz Cramer para xᵢ") no se pisan entre sí. Esto fue una corrección real (commit `3b477fc`): con el frame como `dict` indexado por descripción, los `n` pasos de Cramer sobrevivían sólo como uno.
 
@@ -57,9 +58,27 @@ CramerMethod(matriz: List[List[float]], b: List[float])
 
 1. Calcula `detA = calculate_determinant(A, show_sarrus=(n==3))` y lo registra (`tag="Determinante A"`).
 2. **Si `detA ≠ 0`** (solución única): para cada variable `i`, construye `Aᵢ`, calcula `det(Aᵢ)`, obtiene `xᵢ = det(Aᵢ)/det(A)`, y registra la matriz de Cramer con su determinante (`tag=f"cramer_x{i+1}"`). Todas las variables se declaran básicas.
-3. **Si `detA = 0`**: calcula los `n` determinantes de Cramer igual (son justamente los que distinguen los dos casos), y:
-   - Si algún `det(Aᵢ) ≠ 0` → **inconsistente**.
-   - Si todos `det(Aᵢ) = 0` → **infinitas soluciones**.
+3. **Si `detA = 0`**: calcula los `n` determinantes de Cramer igual (`tag=f"cramer_check_x{i+1}"`), y:
+   - Si algún `det(Aᵢ) ≠ 0` → **inconsistente** (lo decide la regla).
+   - Si todos `det(Aᵢ) = 0` → la regla **no decide**. `_clasificar_por_rangos()` calcula `rango(A)` y `rango([A|b])` con `core.matrix_tools.rank_of` (el mismo motor de rango que usa `matrix/properties`) y registra un paso `tag="rank_check"` con la matriz aumentada:
+     - `rango(A) < rango([A|b])` → **inconsistente**.
+     - `rango(A) = rango([A|b])` (< `n`, porque `det(A) = 0`) → **infinitas soluciones**, con `n − rango(A)` parámetros libres.
+
+### 4.1. Por qué "todos los det(Aᵢ) = 0" no alcanza
+
+Si `Ax = b` tiene una solución `x`, entonces `b = Σ xⱼ·aⱼ` (combinación de las columnas de `A`) y, por multilinealidad del determinante, `det(Aᵢ) = xᵢ·det(A)`. Con `det(A) = 0` eso da:
+
+> sistema compatible ⟹ `det(Aᵢ) = 0` para todo `i`.
+
+La contrarrecíproca es la que usa la rama inconsistente: algún `det(Aᵢ) ≠ 0` ⟹ incompatible. La **recíproca es falsa**. Contraejemplo:
+
+```
+A = [[0,0,0],[0,0,0],[0,0,0]],  b = [1,0,0]   →   0 = 1
+```
+
+`det(A) = 0` y cada `Aᵢ` tiene dos columnas nulas, así que `det(A₁) = det(A₂) = det(A₃) = 0`; sin embargo `rango(A) = 0 < rango([A|b]) = 1`: inconsistente. Lo mismo pasa con `A` de rango 1 y `b` fuera de su imagen (p. ej. filas `(1,1,1), (2,2,2), (3,3,3)` y `b = (1,2,4)`). En general, el criterio de los determinantes sólo es completo cuando `rango(A) = n − 1`; falla cuando `rango(A) ≤ n − 2` (en 2×2, sólo con `A = 0`). Hasta la rama `fix/cramer-singular-classification` el código concluía "infinitas soluciones" en esos casos.
+
+Este paso auxiliar **no es la regla de Cramer** y se registra aparte en el `frame` justamente para que el procedimiento no atribuya la conclusión a los determinantes.
 
 **Shape exacto del resultado** (las tres ramas comparten claves):
 
@@ -91,7 +110,9 @@ Si no hay `self.solution` (no se resolvió, o no hubo solución única), devuelv
 - `f"cramer_check_x{i+1}"` — lo mismo, en las ramas singulares (se calculan igual, para poder distinguir inconsistente de infinitas).
 - `"solution"` — solución particular (rama única).
 - `"vars"` — variables básicas/libres (rama única).
-- `"inconsistent"` / `"infinite"` — estado detectado cuando `det(A) = 0`.
+- `"sarrus_rounding"` / `"cofactor_rounding"` — sólo en `calculate_determinant_sarrus`/`_cofactors`: el resultado de la aritmética era ruido de redondeo de una matriz numéricamente singular; el paso lo explica y el método devuelve `0`.
+- `"rank_check"` — sólo cuando `det(A) = 0` y todos los `det(Aᵢ) = 0`: la regla no decide y se comparan `rango(A)` y `rango([A|b])`. La matriz del paso es la aumentada `[A|b]` (n×(n+1)).
+- `"inconsistent"` / `"infinite"` — estado detectado cuando `det(A) = 0`. Siempre es el último paso del frame en esas ramas.
 - `"sarrus_*"` — pasos de la Regla de Sarrus (ver `calculate_determinant_sarrus`, sección 3).
 - `"verify"` — pasos de `verify_solution`.
 
@@ -114,7 +135,9 @@ La respuesta (`api/adapters/reduce.py::_matrix_cramer`) trae dos cosas que `solv
 - **Los n+1 determinantes**, no sólo `det(A)`: `result.determinants` es una lista con `det(A)` (`variable: null`) seguido de un `det(Aᵢ)` por variable, cada uno con su matriz. Es la corrección de la regresión que arregló `3b477fc` (ver sección 2) llevada hasta la respuesta HTTP — mostrar un solo determinante para Cramer es mostrar exactamente lo que Cramer no es.
 - `steps` usa el envelope `frame.states` (no la lista plana de gauss/gauss-jordan): es la rama de render que `ResultPretty.tsx` (frontend) elige cuando `method` es `sarrus`/`cofactors`/`cramer`.
 
-El `summary` **no** trae `rank`/`ranks`: Cramer no calcula rangos, y fabricarlos exigiría correr Gauss por detrás bajo el rótulo de Cramer.
+El `summary` **no** trae `rank`/`ranks`: la regla de Cramer no calcula rangos. Cuando hace falta el análisis de rangos auxiliar (sección 4.1), sus valores aparecen en el paso `rank_check` del procedimiento, no en el `summary` — así el contrato es el mismo en todos los casos y no se presenta como resultado de Cramer algo que no lo es.
+
+**Cuándo un determinante "es 0":** no se decide por el tamaño del número (`det(1e-5·I) = 1e-15` es invertible) sino por el rango, con el criterio compartido de `core/matrix_tools.py` — ver [`CriterioNumerico.md`](CriterioNumerico.md). `det(A) ≠ 0 ⇔ rango(A) = n` y `det(Aᵢ) ≠ 0 ⇔ rango(Aᵢ) = n`. Si la aritmética de un det singular da ruido (`-2.78e-17` para la matriz 0.1…0.9), el paso lo dice y se informa `0`. Si `A` tiene rango completo pero `det(A)` no es representable en coma flotante (subdesborda a `0.0`), `solve()` levanta `ValueError` en vez de dividir por cero. `CramerMethod.determinants_C` guarda los `n` det(Aᵢ) tal como se decidieron, y `api/adapters/reduce.py` los toma de ahí.
 
 ```py
 # api/adapters/reduce.py
@@ -153,6 +176,16 @@ print(res2['solution'])    # None
 print(res2['basic_vars'])  # []
 ```
 
+Sistema singular donde todos los determinantes son 0 pero no hay solución (lo decide el análisis de rangos):
+
+```py
+cm3 = CramerMethod([[0.0, 0.0, 0.0], [0.0, 0.0, 0.0], [0.0, 0.0, 0.0]], [1.0, 0.0, 0.0])
+res3 = cm3.solve()
+print(res3['status'])            # 'inconsistent'
+print(cm3.frame[-2]['tag'])      # 'rank_check'
+print(cm3.frame[-1]['text'])     # 'rango(A) = 0 < rango([A|b]) = 1 -> sistema inconsistente'
+```
+
 ---
 
 ## 10. Archivos relacionados
@@ -161,3 +194,4 @@ print(res2['basic_vars'])  # []
 - `api/adapters/reduce.py` — traduce `CramerMethod.solve()` al contrato JSON de `matrix/reduce`.
 - `api/adapters/determinant.py` — expone `calculate_determinant_sarrus`/`_cofactors` bajo `matrix/determinant`; rechaza `method=cramer`.
 - `core/gauss_jordan.py` — complemento para parametrizar soluciones cuando `det(A) = 0` (Cramer no lo hace).
+- `core/matrix_tools.py` — `rank_of`, usado por `_clasificar_por_rangos` cuando la regla no decide.

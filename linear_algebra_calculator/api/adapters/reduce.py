@@ -25,8 +25,11 @@ deliberados y cubiertos por tests:
   elige la rama de render por `input.method`, y para sarrus/cofactors/cramer
   lee `steps.frame.states` con estados autocontenidos.
 - el `summary` no trae `rank`/`ranks`: la regla de Cramer no calcula rangos.
-  Inventarlos exigiría correr Gauss por detrás y devolver, bajo el rótulo de
-  Cramer, un número que Cramer nunca produjo.
+  Inventarlos exigiría devolver, bajo el rótulo de Cramer, un número que
+  Cramer nunca produjo. La única excepción es interna a core/cramer.py: con
+  det(A) = 0 y todos los det(Aᵢ) = 0 la regla no decide y el motor clasifica
+  por rangos (Rouché–Frobenius); esos rangos quedan en el paso `rank_check`
+  del procedimiento, no en el `summary`, así el shape es el mismo siempre.
 """
 
 from __future__ import annotations
@@ -47,8 +50,13 @@ METODOS = ("gauss", "gauss-jordan", "cramer")
 
 
 def _summary(final_matrix: Matrix, pivots) -> Dict[str, Any]:
-    info = analyze_argumented(final_matrix)
-    solved = solve_from_upper(final_matrix, pivots=pivots)
+    # tol=None: cero EXACTO. La eliminación de GaussMethod / GaussJordanMethod
+    # ya decidió qué es ruido de redondeo (criterio de core/matrix_tools.py) y
+    # lo dejó en 0.0; volver a mirar la matriz final con un umbral propio
+    # (antes, 1e-12 absoluto) podía contradecir al motor: "0 = 1e-13" salía
+    # compatible en la API aunque el sistema fuera incompatible.
+    info = analyze_argumented(final_matrix, tol=None)
+    solved = solve_from_upper(final_matrix, pivots=pivots, tol=None)
 
     rank_a = info["rank"]
     # rank([A|b]): si el sistema es inconsistente, la columna de b aporta un
@@ -71,13 +79,13 @@ def _summary(final_matrix: Matrix, pivots) -> Dict[str, Any]:
 def _cramer_determinants(solver: CramerMethod, det_a: float) -> List[Dict[str, Any]]:
     """Los n+1 determinantes de la regla: det(A) y un det(Aᵢ) por variable.
 
-    `CramerMethod.solve()` calcula los n determinantes de Cramer pero no los
-    devuelve -- los escribe en el frame ya formateados como texto
-    (`det=format_number(detC)`), que sirve para mostrar el paso pero no para
-    operar. Recuperar el número parseando esa cadena de vuelta sería frágil,
-    así que se recalculan acá con `calculate_determinant(..., show_sarrus=
-    False)`: misma aritmética que usó solve() y, con show_sarrus en False, sin
-    un solo log_step -- no toca el frame que ya se armó.
+    `CramerMethod.solve()` no devuelve los n determinantes de Cramer en el
+    resultado, pero los deja en `solver.determinants_C` tal como los decidió:
+    0.0 exacto cuando Aᵢ es numéricamente singular (rango < n), aunque la
+    aritmética haya dado ruido de redondeo como 1e-17. Se toman de ahí y no
+    se recalculan: recalcularlos con `calculate_determinant` devolvería ese
+    ruido y la respuesta mostraría un det(Aᵢ) ≠ 0 justo en el caso en que el
+    procedimiento dice que vale 0.
 
     Es el dato que la Fase 7 tiene que hacer llegar hasta el navegador: el
     frontend heredado mostraba UN determinante para Cramer, que es
@@ -95,7 +103,7 @@ def _cramer_determinants(solver: CramerMethod, det_a: float) -> List[Dict[str, A
 
     for col in range(solver.n_variables):
         C = solver.create_cramer_matrix(col)
-        det_c = solver.calculate_determinant(C, show_sarrus=False)
+        det_c = solver.determinants_C[col]
         determinants.append(
             {
                 "variable": col,
