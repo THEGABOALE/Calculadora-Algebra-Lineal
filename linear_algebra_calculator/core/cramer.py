@@ -6,7 +6,37 @@ from utils.printMethods import log_step
 from utils.EquationFunctions import format_number, num_to_sub
 import copy
 from math import isfinite
+import sys
 import warnings
+
+
+def _rechazar_si_subnormal(det: float, nombre: str) -> None:
+    """Rechaza un determinante distinto de cero en el rango subnormal.
+
+    Un double subnormal (0 < |x| < ~2.2e-308) tiene menos de 53 bits
+    significativos: 5e-324 conserva uno solo. La regla xᵢ = det(Aᵢ)/det(A)
+    divide dos números ya redondeados a esa precisión y el resultado puede
+    ser falso sin ningún aviso: A = [[1e-200, 0], [0, 6e-124]],
+    b = [1.5e-200, 6e-124] (solución [1.5, 1]) daba [2, 1], porque det(A)
+    = 6e-324 se guarda como 5e-324 y det(A₁) = 9e-324 como 1e-323. Medido
+    sobre sistemas 2×2 con solución conocida, el error relativo crece con la
+    profundidad subnormal (~1e-14 con det ~1e-310, ~1e-8 con ~1e-315, ~5e-4
+    con ~1e-320, hasta 0.67 con ~1e-323), así que no hay un corte seguro
+    dentro de ese rango.
+
+    Conservar la precisión exigiría calcular y mostrar los determinantes de
+    Cramer como mantisa y exponente (cambiando los pasos y el JSON de
+    result.determinants). Se prefiere el mismo criterio que ya se usa cuando
+    det(A) no es representable: un error explícito en vez de un resultado
+    que podría ser falso. Gauss-Jordan resuelve esos sistemas sin dividir
+    determinantes.
+    """
+    if det != 0.0 and abs(det) < sys.float_info.min:
+        raise ValueError(
+            f"{nombre} = {det!r} está en el rango subnormal de coma flotante (|det| < 2.2e-308): "
+            "conserva muy pocas cifras significativas y el cociente det(Aᵢ)/det(A) no sería confiable. "
+            "La regla de Cramer no se puede aplicar con estas magnitudes. Usá Gauss-Jordan o reescalá el sistema."
+        )
 
 
 def _det_sin_desborde(matrix: List[List[float]]) -> float:
@@ -332,6 +362,7 @@ class CramerMethod(Matrix):
                     f"(se obtuvo {detA_calculado}): la regla de Cramer no se puede aplicar con "
                     "estas magnitudes. Usá Gauss-Jordan o reescalá el sistema."
                 )
+            _rechazar_si_subnormal(detA_calculado, "det(A)")
             solution: List[float] = []
             for col in range(n):
                 C = self.create_cramer_matrix(col)
@@ -351,6 +382,7 @@ class CramerMethod(Matrix):
                             "no vale 0): la regla de Cramer no se puede aplicar con estas magnitudes. "
                             "Usá Gauss-Jordan o reescalá el sistema."
                         )
+                _rechazar_si_subnormal(detC, f"det(A{num_to_sub(col+1)})")
                 xi = detC / detA
                 if not isfinite(xi):
                     raise ValueError(
