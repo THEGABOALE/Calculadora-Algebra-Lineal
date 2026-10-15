@@ -40,7 +40,8 @@ una de esas dos interfaces, cada una con su propio traductor de resultados
 
 ## Instalación
 
-Requiere Python 3.12+ y Node 18+ (para el frontend).
+Requiere Python 3.12+ y Node 20.19+ o 22.12+ (para el frontend: Vite 7 no
+arranca con versiones anteriores). El CI usa Python 3.12 y Node 22.
 
 ### Backend (CLI y/o API)
 
@@ -124,12 +125,43 @@ En Windows PowerShell:
 $env:PYTHONPATH="linear_algebra_calculator"; python -m unittest discover tests -v
 ```
 
-La suite (195 tests) cubre el motor matemático (`core/`) y los endpoints de
+La suite (341 tests) cubre el motor matemático (`core/`) y los endpoints de
 la API con `rest_framework.test.APIClient`, sin necesitar `manage.py test`
-ni una base de datos de prueba.
+ni una base de datos de prueba. Completá la validación del backend con:
 
-Para el frontend: `cd frontend && npx tsc --noEmit && npm run build`
-(typecheck + build; no hay suite de tests de UI en este repo).
+```bash
+cd linear_algebra_calculator
+python manage.py check
+```
+
+Para el frontend (typecheck + build; no hay suite de tests de UI en este
+repo):
+
+```bash
+cd frontend
+npm ci
+npx tsc --noEmit
+npm run build
+```
+
+## Integración continua
+
+`.github/workflows/ci.yml` corre exactamente esos comandos en GitHub Actions
+en cada pull request y en cada push a `main`, con dos jobs independientes:
+
+- **Python (tests + manage.py check)**: Python 3.12, `pip install -r
+  requirements.txt`, la suite completa y `manage.py check`.
+- **Frontend (tsc + build)**: Node 22, `npm ci`, `npx tsc --noEmit` y
+  `npm run build`.
+
+No usa Docker, base de datos, servicios externos ni despliegues, y el
+workflow sólo tiene permiso de lectura sobre el repositorio.
+
+Para verificarlo: en el PR, la sección de checks muestra los dos jobs (un
+job en rojo indica qué paso falló); el historial completo está en la pestaña
+**Actions** del repositorio, en el workflow **CI**. Con
+[GitHub CLI](https://cli.github.com/): `gh pr checks <número>` o
+`gh run list --workflow ci.yml`.
 
 ## Estructura del proyecto
 
@@ -162,6 +194,7 @@ frontend/                        # React + TypeScript + Vite, independiente de l
 
 tests/                           # en la raíz del repo, no dentro de linear_algebra_calculator/
 documentation/                   # documentación técnica por método/dominio
+.github/workflows/ci.yml         # CI: tests + manage.py check, y tsc + build del frontend
 ```
 
 **Regla de separación:** si un módulo llama a `input()`/`print()`, vive en
