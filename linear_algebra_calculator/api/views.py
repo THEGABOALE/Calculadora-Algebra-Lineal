@@ -5,6 +5,7 @@ from rest_framework import status
 from api.adapters.determinant import matrix_determinant
 from api.adapters.matrices import matrix_operate
 from api.adapters.numerico import (
+    abs_rel_error,
     bisection_method,
     false_position_method,
     newton_raphson_method,
@@ -14,6 +15,7 @@ from api.adapters.properties import matrix_properties
 from api.adapters.reduce import matrix_reduce
 from api.adapters.vectores import linear_combination, vector_operate
 from api.serializers import (
+    AbsRelErrorSerializer,
     BisectionSerializer,
     FalsePositionSerializer,
     MatrixDeterminantSerializer,
@@ -301,6 +303,33 @@ class SecantView(APIView):
         except (ValueError, ZeroDivisionError) as exc:
             return Response(
                 {"error": {"code": "SECANT_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class AbsRelErrorView(APIView):
+    """POST /api/v1/numeric/abs-rel-error -- core/numeric/errores.py."""
+
+    def post(self, request):
+        serializer = AbsRelErrorSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": serializer.errors}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            result = abs_rel_error(
+                true_value=data["true_value"],
+                approx_value=data["approx_value"],
+                decimals_display=data["decimals_display"],
+            )
+        except ValueError as exc:
+            return Response(
+                {"error": {"code": "ABS_REL_ERROR", "message": str(exc)}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 

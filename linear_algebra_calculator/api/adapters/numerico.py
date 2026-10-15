@@ -44,6 +44,7 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional
 
+from core.numeric.errores import calcular_error_absoluto_relativo, texto_exacto
 from core.numeric.metodos_abiertos import metodo_newton_raphson, metodo_secante
 from core.numeric.metodos_cerrados import metodo_biseccion, metodo_regla_falsa
 
@@ -179,3 +180,42 @@ def secant_method(*, function_latex: str, x0: float, x1: float, tolerance: float
     resultado = metodo_secante(f_str, x0, x1, tolerance, max_iter=max_iter, modo_angular=angle_mode)
     tabla = [_fila_secante(fila, tolerance) for fila in resultado["historial"]]
     return _base(resultado, tabla)
+
+
+def abs_rel_error(*, true_value: str, approx_value: str, decimals_display: int) -> Dict[str, Any]:
+    """numeric/abs-rel-error -- core/numeric/errores.py.
+
+    Conserva las claves que lee ErrorAbsRelInputs.tsx (input.*_pretty y, en
+    cada error, operation/formula/result) y agrega, sin romperlas:
+    `exact` (el valor sin redondear), `percent`, `defined` y `note` en el
+    relativo, y `decimals_display` en input. Los números van como texto:
+    son Decimal y JSON no tiene cómo representarlos sin pasar por float.
+    """
+    r = calcular_error_absoluto_relativo(true_value, approx_value, decimals_display)
+    ea, er = r["error_absoluto"], r["error_relativo"]
+    m_txt = texto_exacto(r["valor_verdadero"])
+    mt_txt = texto_exacto(r["valor_aproximado"])
+    return {
+        "input": {
+            "true_value": m_txt,
+            "approx_value": mt_txt,
+            "true_value_pretty": m_txt,
+            "approx_value_pretty": mt_txt,
+            "decimals_display": r["decimales"],
+        },
+        "absolute_error": {
+            "operation": {"numerator": ea["formula"]},
+            "formula": {"numerator": ea["sustitucion"]},
+            "result": ea["texto"],
+            "exact": texto_exacto(ea["valor"]),
+        },
+        "relative_error": {
+            "operation": {"numerator": er["formula"][0], "denominator": er["formula"][1]},
+            "formula": {"numerator": er["sustitucion"][0], "denominator": er["sustitucion"][1]},
+            "result": er["texto"],
+            "exact": None if er["valor"] is None else texto_exacto(er["valor"]),
+            "percent": er["porcentaje"],
+            "defined": er["valor"] is not None,
+            "note": er["nota"],
+        },
+    }
