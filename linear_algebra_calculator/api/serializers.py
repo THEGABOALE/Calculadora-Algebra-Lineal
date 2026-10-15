@@ -43,6 +43,17 @@ class MatrixOperateSerializer(serializers.Serializer):
     def _same_size(A, B) -> bool:
         return len(A) == len(B) and len(A[0]) == len(B[0])
 
+    @staticmethod
+    def _exigir_filas_iguales(M, nombre: str) -> None:
+        # Las demás comprobaciones de este serializer miran sólo len(M[0]):
+        # con filas de distinto largo, core/ reventaba (500) o, en transpose
+        # y matmul_chain, devolvía 200 con elementos perdidos. Mismo mensaje
+        # que los otros serializers de matrices.
+        if any(len(row) != len(M[0]) for row in M):
+            raise serializers.ValidationError(
+                f"Todas las filas de '{nombre}' deben tener la misma longitud."
+            )
+
     def validate(self, data):
         op = data["operation"]
         A, B = data.get("A"), data.get("B")
@@ -54,6 +65,8 @@ class MatrixOperateSerializer(serializers.Serializer):
                 raise serializers.ValidationError(f"Para '{op}' se requieren 'A' y 'B'.")
             if not self._is_matrix(A) or not self._is_matrix(B):
                 raise serializers.ValidationError("A y B deben ser matrices no vacías.")
+            self._exigir_filas_iguales(A, "A")
+            self._exigir_filas_iguales(B, "B")
             if not self._same_size(A, B):
                 raise serializers.ValidationError("A y B deben tener la misma dimensión.")
 
@@ -62,18 +75,22 @@ class MatrixOperateSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Para 'scalar' se requieren 'A' y 'scalar'.")
             if not self._is_matrix(A):
                 raise serializers.ValidationError("A debe ser una matriz no vacía.")
+            self._exigir_filas_iguales(A, "A")
 
         elif op == "transpose":
             if A is None:
                 raise serializers.ValidationError("Para 'transpose' se requiere 'A'.")
             if not self._is_matrix(A):
                 raise serializers.ValidationError("A debe ser una matriz no vacía.")
+            self._exigir_filas_iguales(A, "A")
 
         elif op == "matmul":
             if A is None or B is None:
                 raise serializers.ValidationError("Para 'matmul' se requieren 'A' y 'B'.")
             if not self._is_matrix(A) or not self._is_matrix(B):
                 raise serializers.ValidationError("A y B deben ser matrices no vacías.")
+            self._exigir_filas_iguales(A, "A")
+            self._exigir_filas_iguales(B, "B")
             if len(A[0]) != len(B):
                 raise serializers.ValidationError(
                     f"Incompatibilidad dimensional: cols(A)={len(A[0])} != filas(B)={len(B)}."
@@ -86,6 +103,8 @@ class MatrixOperateSerializer(serializers.Serializer):
                 )
             if any(not self._is_matrix(M) for M in matrices):
                 raise serializers.ValidationError("Todas las 'matrices' deben ser no vacías.")
+            for i, M in enumerate(matrices):
+                self._exigir_filas_iguales(M, f"matrices[{i}]")
             if op in ("sum_many", "sub_many"):
                 first = matrices[0]
                 if any(not self._same_size(first, M) for M in matrices[1:]):
@@ -104,6 +123,7 @@ class MatrixOperateSerializer(serializers.Serializer):
                 raise serializers.ValidationError("Para 'inverse' se requiere 'A'.")
             if not self._is_matrix(A):
                 raise serializers.ValidationError("A debe ser una matriz no vacía.")
+            self._exigir_filas_iguales(A, "A")
             if len(A) != len(A[0]):
                 raise serializers.ValidationError("La matriz debe ser cuadrada para invertir.")
 
