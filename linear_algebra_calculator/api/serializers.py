@@ -351,9 +351,7 @@ class SecantSerializer(serializers.Serializer):
     x1 = serializers.FloatField()
     tolerance = serializers.FloatField()
     max_iterations = serializers.IntegerField(required=False, min_value=1)
-    # Aceptado por compatibilidad; no se usa. core/numeric no tiene un modo
-    # grados/radianes -- las funciones trigonométricas siempre asumen
-    # radianes. Aceptar 'deg' del selector sin convertir nada sería fingir
-    # soporte que no existe, así que no se valida ni se actúa sobre él: si
-    # se necesita de verdad, es una fase aparte en core/, no un parche acá.
-    angle_mode = serializers.CharField(required=False)
+    # Unidad de los argumentos de sin/cos/tan (issue #24). Antes se aceptaba
+    # cualquier texto y se ignoraba: 'deg' devolvía la raíz en radianes. La
+    # conversión vive en core/numeric/_expresiones.py; omitido = 'rad'.
+    angle_mode = serializers.ChoiceField(choices=["rad", "deg"], required=False, default="rad")

@@ -296,6 +296,7 @@ class SecantView(APIView):
                 x1=data["x1"],
                 tolerance=data["tolerance"],
                 max_iter=data.get("max_iterations", 100),
+                angle_mode=data["angle_mode"],
             )
         except (ValueError, ZeroDivisionError) as exc:
             return Response(

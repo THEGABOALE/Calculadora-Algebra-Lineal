@@ -32,20 +32,23 @@ from core.numeric._expresiones import (
     evaluar,
 )
 
+# Sufijo LaTeX de las aproximaciones según la unidad de x.
+_UNIDAD_LATEX = {"rad": "", "deg": r"^\circ"}
+
 
 def _validar_tolerancia(tolerancia: float) -> None:
     if tolerancia <= 0:
         raise ValueError(f"La tolerancia debe ser positiva (tolerancia={tolerancia}).")
 
 
-def _conclusion(metodo: str, raiz: float, iteraciones: int) -> Dict[str, Any]:
+def _conclusion(metodo: str, raiz: float, iteraciones: int, unidad: str = "") -> Dict[str, Any]:
     return {
         "raiz": raiz,
         "iteraciones": iteraciones,
         "criterio_paro": "error_relativo < tolerancia",
         "latex": (
             rf"\text{{{metodo} converge en }} {iteraciones} \text{{ iteraciones. }}"
-            rf"\text{{La raíz aproximada es }} x_r = {raiz:.6f}."
+            rf"\text{{La raíz aproximada es }} x_r = {raiz:.6f}{unidad}."
         ),
     }
 
@@ -154,17 +157,25 @@ def metodo_secante(
     x1: float,
     tolerancia: float,
     max_iter: int = 100,
+    modo_angular: str = "rad",
 ) -> Dict:
     """
     Método de la Secante para encontrar raíces.
 
     Fórmula: x_{n+1} = x_n - f(x_n)·(x_n - x_{n-1}) / (f(x_n) - f(x_{n-1}))
 
+    modo_angular="deg": los argumentos de sin/cos/tan se leen en grados, así
+    que x0, x1, las aproximaciones y la raíz están en grados y cada f(x) de
+    la tabla es la función evaluada en grados. "rad" (default) es el
+    comportamiento de siempre.
+
     Levanta:
+    - ValueError si modo_angular no es "rad" ni "deg"
     - ZeroDivisionError si f(x_n) - f(x_{n-1}) = 0 en alguna iteración
     """
     _validar_tolerancia(tolerancia)
-    f, expr, _ = compilar(f_str)
+    f, expr, _ = compilar(f_str, modo_angular)
+    unidad = _UNIDAD_LATEX[modo_angular]
 
     historial: List[Dict] = []
     detalles: List[Dict] = []
@@ -205,7 +216,7 @@ def metodo_secante(
                 "iteracion": i,
                 "lineas": [
                     rf"x_{{{i + 1}}} = x_n - \frac{{f(x_n)(x_n - x_{{n-1}})}}"
-                    rf"{{f(x_n) - f(x_{{n-1}})}} = {x_nuevo:.6f}",
+                    rf"{{f(x_n) - f(x_{{n-1}})}} = {x_nuevo:.6f}{unidad}",
                     rf"f(x_n) = {fx_actual:.6e}",
                 ]
                 + ([rf"E_a = {error_actual:.6f}\%"] if error_actual != float("inf") else []),
@@ -221,7 +232,8 @@ def metodo_secante(
                 "metodo": "Secante",
                 "funcion_latex": a_latex(expr),
                 "detalles": detalles,
-                "conclusion": _conclusion("Secante", x_nuevo, i),
+                "conclusion": _conclusion("Secante", x_nuevo, i, unidad),
+                "modo_angular": modo_angular,
             }
 
         x_anterior = x_actual
@@ -235,8 +247,9 @@ def metodo_secante(
         "metodo": "Secante",
         "funcion_latex": a_latex(expr),
         "detalles": detalles,
-        "conclusion": _conclusion("Secante", x_nuevo, max_iter),
+        "conclusion": _conclusion("Secante", x_nuevo, max_iter, unidad),
         "advertencia": "Alcanzado número máximo de iteraciones",
+        "modo_angular": modo_angular,
     }
 
 

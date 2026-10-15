@@ -146,6 +146,10 @@ def _base(resultado: Dict[str, Any], tabla: List[Dict[str, Any]]) -> Dict[str, A
         salida["warning"] = resultado["advertencia"]
     if "derivada_latex" in resultado:
         salida["derivative_latex"] = resultado["derivada_latex"]
+    if "modo_angular" in resultado:
+        # Campo nuevo y aditivo: el frontend no lo lee, pero deja explícito
+        # en qué unidad están x0, x1, la tabla y la raíz.
+        salida["angle_mode"] = resultado["modo_angular"]
     return salida
 
 
@@ -170,8 +174,8 @@ def newton_raphson_method(*, function_latex: str, x0: float, tolerance: float, m
     return _base(resultado, tabla)
 
 
-def secant_method(*, function_latex: str, x0: float, x1: float, tolerance: float, max_iter: int = 100) -> Dict[str, Any]:
+def secant_method(*, function_latex: str, x0: float, x1: float, tolerance: float, max_iter: int = 100, angle_mode: str = "rad") -> Dict[str, Any]:
     f_str = latex_a_texto(function_latex)
-    resultado = metodo_secante(f_str, x0, x1, tolerance, max_iter=max_iter)
+    resultado = metodo_secante(f_str, x0, x1, tolerance, max_iter=max_iter, modo_angular=angle_mode)
     tabla = [_fila_secante(fila, tolerance) for fila in resultado["historial"]]
     return _base(resultado, tabla)

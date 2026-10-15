@@ -24,8 +24,8 @@ Los cuatro métodos comparten la misma forma de entrada (una función como texto
 `core/numeric/_expresiones.py` parsea `f(x)` con `sympy` en vez de `eval()`:
 
 ```py
-parsear(f_str: str) -> (expr, x)
-compilar(f_str: str) -> (f, expr, x)      # f es una función numérica (lambdify)
+parsear(f_str: str, modo_angular="rad") -> (expr, x)
+compilar(f_str: str, modo_angular="rad") -> (f, expr, x)   # f es una función numérica (lambdify)
 derivar(expr, x, derivada_str=None)       # -> (f_prime, expr_prime)
 evaluar(f, x_val, f_str="") -> float
 error_relativo(x_nuevo, x_viejo) -> float
@@ -34,6 +34,15 @@ error_relativo(x_nuevo, x_viejo) -> float
 `^` se traduce a `**` antes de parsear (igual que antes): en sympy, como en Python, `^` es XOR, no potencia, y sin la traducción `x^2` parsearía silenciosamente distinto de `x**2`.
 
 Funciones soportadas: `sin`, `cos`, `tan`, `exp`, `log`, `log10`, `sqrt`, `abs`, `pi`, `e`. Un nombre de función no reconocido (`sen(x)`, típico error al escribir en castellano) o una variable distinta de `x` levantan `ValueError` con el nombre problemático — sympy no lo hace por sí solo: una función desconocida parsea como "función indefinida" sin fallar, así que la validación está en `parsear()`, no delegada al parser.
+
+**Modo angular.** `modo_angular` (`"rad"` por defecto, o `"deg"`) fija la unidad de los argumentos de `sin`, `cos` y `tan`. Con `"deg"`, el parser construye `sin(pi*arg/180)` (y análogo para `cos`, `tan`) al leer cada llamada, sobre el árbol de sympy y no con reemplazos de texto:
+
+- sólo cambian los argumentos de esas tres funciones: en `x**2 + sin(x)` el `x**2` queda igual; `sin(2*x)` pasa a `sin(pi*x/90)`;
+- la conversión ocurre antes de que sympy simplifique la llamada, así que `sin(x + pi)` en grados es `sin(pi*(x + pi)/180)` (el `pi` es el número 3.14159…, no 180°), no `-sin(x)` convertido después;
+- no hay trigonométricas inversas soportadas (`asin`, `acos`, `atan`), así que ningún resultado se devuelve como ángulo: el modo afecta sólo a los argumentos;
+- funciones sin trigonométricas (`x**2 - 4`, `exp(x) - 2`) dan exactamente el mismo resultado en los dos modos.
+
+Hoy sólo `metodo_secante` expone el modo (issue #24); Newton-Raphson, Bisección y Regla Falsa siguen evaluando en radianes. Un valor distinto de `"rad"`/`"deg"` levanta `ValueError`.
 
 **Import diferido, a propósito:** `sympy` se importa dentro de las funciones de `_expresiones.py`, nunca a nivel de módulo. `cli/startup.py` importa `cli.numerical_methods_runners` a nivel de módulo, así que si `core/numeric/` importara `sympy` arriba, el CLI entero pagaría esa carga en cada arranque, antes de mostrar el menú, aunque el usuario sólo fuera a resolver una matriz. Mismo motivo por el que `utils/symbolic_equations.py` aísla `symengine`.
 
@@ -92,10 +101,12 @@ metodo_newton_raphson(f_str, x0, tolerancia, max_iter=100, derivada=None) -> Dic
 - `ZeroDivisionError` si `f'(x_k) = 0` en alguna iteración puntual, aunque la derivada no sea nula en general.
 
 ```py
-metodo_secante(f_str, x0, x1, tolerancia, max_iter=100) -> Dict
+metodo_secante(f_str, x0, x1, tolerancia, max_iter=100, modo_angular="rad") -> Dict
 ```
 
 `x_{n+1} = x_n - f(x_n)·(x_n - x_{n-1})/(f(x_n) - f(x_{n-1}))`. No necesita derivada, sólo dos puntos iniciales. Si `f(x_n) - f(x_{n-1}) = 0` en alguna iteración, levanta `ZeroDivisionError`.
+
+Con `modo_angular="deg"`, `x0`, `x1`, todas las aproximaciones y la raíz están en grados, cada `f(x)` del historial es la función evaluada en grados, y los `detalles` y la `conclusion` marcan las aproximaciones con `^\circ`. `funcion_latex` muestra la función que efectivamente se evaluó (p. ej. `\sin{\left(\frac{\pi x}{180} \right)}`). El resultado incluye `modo_angular`. Ejemplo: `sin(x) - 0.5` con `x0=20`, `x1=40` da 30 en grados y 52.88… en radianes (la raíz de `sin(x) = 0.5` que encuentra el método en radianes).
 
 **Cambio de comportamiento respecto de la versión anterior:** las degeneraciones (derivada nula, denominador nulo) antes devolvían un resultado con `advertencia` y una "raíz" aproximada; ahora levantan excepción. Son condiciones donde la fórmula del método no está definida, no un resultado aproximado — devolver una raíz ahí afirmaba algo que el método no había calculado.
 
@@ -131,6 +142,8 @@ Menú de tres niveles bajo `[8] Métodos Numéricos ▸` en `cli/startup.py`:
 | `POST /api/v1/numeric/false-position` | `metodo_regla_falsa` | forzado a `"intervalo"` |
 | `POST /api/v1/numeric/newton-raphson` | `metodo_newton_raphson` | — (no aplica) |
 | `POST /api/v1/numeric/secant` | `metodo_secante` | — (no aplica) |
+
+**`angle_mode` (sólo secante):** `"rad"` (default si se omite) o `"deg"`; cualquier otro valor responde `400 VALIDATION_ERROR`. Se pasa hasta `metodo_secante(modo_angular=...)` y la respuesta lo repite en el campo `angle_mode`. Antes del issue #24 el parámetro se aceptaba sin validar y se ignoraba: con `"deg"` la API devolvía la raíz en radianes.
 
 **Entrada en LaTeX, no en texto plano.** El frontend tiene un teclado matemático que produce LaTeX; `api/adapters/latex.py::latex_a_texto` lo traduce a la sintaxis de texto que espera `core/numeric` (`sympy.parsing.latex.parse_latex`, que necesita `antlr4-python3-runtime`). Esa dependencia queda confinada al adaptador — ni `core/` ni el CLI la cargan nunca.
 
