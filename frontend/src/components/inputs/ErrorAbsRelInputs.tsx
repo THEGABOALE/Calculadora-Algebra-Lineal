@@ -12,9 +12,25 @@ type ApiResponse = {
   relative_error?: {
     operation?: { numerator?: string; denominator?: string };
     formula?: { numerator?: string; denominator?: string };
-    result?: string;
+    result?: string | null;
+    percent?: string | null;
+    defined?: boolean;
+    note?: string | null;
   };
 };
+
+// El backend responde {"error": {"code", "message"}}; message es un texto o,
+// en errores de validación, un objeto campo -> lista de mensajes. Se muestran
+// esos mensajes en vez del genérico "Request failed with status code 400".
+function mensajeDeError(err: any): string {
+  const message = err?.response?.data?.error?.message;
+  if (typeof message === 'string' && message) return message;
+  if (message && typeof message === 'object') {
+    const textos = Object.values(message).flat().map(String).filter(Boolean);
+    if (textos.length) return textos.join(' ');
+  }
+  return err?.message || 'Error en la petición';
+}
 
 interface Props {
   onCalculate?: (data: { m: number | null; mTilde: number | null; decimalesBase: number | null }) => void;
@@ -44,16 +60,18 @@ export function ErrorAbsRelInputs({ onCalculate }: Props) {
     setLoading(true);
     setResult(null);
     try {
+      // Un campo vacío se envía vacío: el backend lo rechaza con un mensaje
+      // claro en vez de calcular con un 0 que el usuario no escribió.
       const payload = {
-        true_value: m === '' ? '0' : String(m),
-        approx_value: mTilde === '' ? '0' : String(mTilde),
-        decimals_display: decimalesBase === '' ? undefined : Number(decimalesBase),
+        true_value: m.trim(),
+        approx_value: mTilde.trim(),
+        decimals_display: decimalesBase.trim() === '' ? undefined : Number(decimalesBase),
       };
       const res = await errorAbsRel(payload);
       setResult(res as ApiResponse);
     } catch (err: any) {
       console.error(err);
-      setApiError(err?.message || 'Error en la petición');
+      setApiError(mensajeDeError(err));
     } finally {
       setLoading(false);
     }
@@ -137,8 +155,14 @@ export function ErrorAbsRelInputs({ onCalculate }: Props) {
                 <div className="border-t border-white/20 mx-auto" style={{ width: '100%' }} />
                 <div className="px-3">{result.relative_error?.formula?.denominator ?? ''}</div>
               </div>
-              <span className="ml-3">= <strong className="text-white">{result.relative_error?.result ?? ''}</strong></span>
+              <span className="ml-3">= <strong className="text-white">{result.relative_error?.defined === false ? 'Indefinido' : (result.relative_error?.result ?? '')}</strong></span>
             </div>
+            {result.relative_error?.defined === false && result.relative_error?.note && (
+              <div className="text-xs text-amber-200">{result.relative_error.note}</div>
+            )}
+            {result.relative_error?.percent && (
+              <div className="text-xs text-purple-200/80">En porcentaje: {result.relative_error.percent}</div>
+            )}
           </div>
         </div>
       )}
