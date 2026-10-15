@@ -163,6 +163,65 @@ class TestComentario4NumeradorNoRepresentable(unittest.TestCase):
         self.assertEqual(r['solution'], [1.0, 0.0])
 
 
+class TestComentario5DeterminantesSubnormales(unittest.TestCase):
+    """PR #6, P1 "Preserve precision when dividing subnormal determinants":
+    det(A) = 6e-324 se guarda como 5e-324 y det(A₁) = 9e-324 como 1e-323;
+    Cramer dividía esos floats y devolvía [2, 1] en vez de [1.5, 1]. Ahora
+    un determinante subnormal (0 < |det| < 2.2e-308) da un error explícito;
+    Gauss y Gauss-Jordan resuelven el sistema."""
+
+    CASOS = [
+        # (A, b, solución exacta)
+        ([[1e-200, 0.0], [0.0, 6e-124]], [1.5e-200, 6e-124], [1.5, 1.0]),     # el del comentario
+        ([[1e-160, 0.0], [0.0, 1e-160]], [3e-160, 1e-160], [3.0, 1.0]),       # det = 1e-320
+        ([[3e-155, 0.0], [0.0, 7e-155]], [3e-155, 1.4e-154], [1.0, 2.0]),     # det = 2.1e-309
+        ([[1e-160, 2e-160], [3e-160, 4e-160]], [3e-160, 7e-160], [1.0, 1.0]), # det = -2e-320, no diagonal
+    ]
+
+    def test_cramer_rechaza_en_vez_de_dividir(self):
+        for A, b, _ in self.CASOS:
+            with self.subTest(A=A):
+                with warnings.catch_warnings():
+                    warnings.simplefilter('error', RuntimeWarning)
+                    with self.assertRaises(ValueError) as ctx:
+                        CramerMethod(copy.deepcopy(A), list(b)).solve()
+                self.assertIn('subnormal', str(ctx.exception))
+
+    def test_gauss_y_gauss_jordan_dan_la_solucion(self):
+        for A, b, x in self.CASOS:
+            for nombre, resolver in (('gauss', gauss), ('gauss-jordan', gj)):
+                with self.subTest(A=A, metodo=nombre):
+                    _, r = resolver(A, b)
+                    self.assertEqual(r['status'], 'unique')
+                    for xi, esperado in zip(r['solution'], x):
+                        self.assertTrue(math.isclose(xi, esperado, rel_tol=1e-12), (xi, esperado))
+
+    def test_api_responde_400_con_el_motivo(self):
+        r = APIClient().post('/api/v1/matrix/reduce', {
+            'method': 'cramer', 'A': [[1e-200, 0.0], [0.0, 6e-124]], 'b': [1.5e-200, 6e-124]}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertIn('subnormal', str(r.data))
+
+    def test_numerador_subnormal_con_det_A_normal(self):
+        # det(A) = 1 (normal), det(A₁) = 1e-310 (subnormal): también se rechaza.
+        with self.assertRaises(ValueError) as ctx:
+            CramerMethod([[1.0, 0.0], [0.0, 1.0]], [1e-310, 1.0]).solve()
+        self.assertIn('det(A₁)', str(ctx.exception))
+
+    def test_determinantes_chicos_normales_no_se_rechazan(self):
+        # det(A) = 1e-300 y det(Aᵢ) ~1e-300: normales, precisión completa.
+        r = CramerMethod([[1e-150, 0.0], [0.0, 1e-150]], [1e-150, 2e-150]).solve()
+        self.assertEqual(r['status'], 'unique')
+        self.assertEqual(r['solution'], [1.0, 2.0])
+        # y det(A) = 1e-15 (el caso de 1e-5·I de la ronda 2) sigue igual
+        r = CramerMethod([[1e-5, 0, 0], [0, 1e-5, 0], [0, 0, 1e-5]], [1e-5, 2e-5, 3e-5]).solve()
+        self.assertEqual(r['status'], 'unique')
+
+    def test_numerador_cero_legitimo_no_es_subnormal(self):
+        r = CramerMethod([[2.0, 1.0], [1.0, 3.0]], [2.0, 1.0]).solve()
+        self.assertEqual(r['solution'], [1.0, 0.0])
+
+
 class TestCasoCodexPR4SigueBien(unittest.TestCase):
 
     def test_infinitas(self):
