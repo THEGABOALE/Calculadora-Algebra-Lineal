@@ -340,6 +340,17 @@ class CramerMethod(Matrix):
                     # Igual que con det(A): un 0 / inf de la expansión directa
                     # con Aᵢ de rango completo es pérdida intermedia, no dato.
                     detC = _det_sin_desborde(C)
+                    if detC == 0.0 or not isfinite(detC):
+                        # Tampoco con mantisa y exponente: |det(Aᵢ)| está fuera
+                        # del rango de un double (p. ej. 1e-330). Dividir daría
+                        # xᵢ = 0 en silencio aunque la solución exista y sea
+                        # representable (1e-230); se rechaza como con det(A).
+                        raise ValueError(
+                            f"det(A{num_to_sub(col+1)}) no es representable en coma flotante "
+                            f"({'subdesborda' if detC == 0.0 else 'desborda'}; Aᵢ tiene rango completo, así que "
+                            "no vale 0): la regla de Cramer no se puede aplicar con estas magnitudes. "
+                            "Usá Gauss-Jordan o reescalá el sistema."
+                        )
                 xi = detC / detA
                 if not isfinite(xi):
                     raise ValueError(

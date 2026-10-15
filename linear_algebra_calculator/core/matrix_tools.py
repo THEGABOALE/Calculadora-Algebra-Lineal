@@ -89,6 +89,54 @@ def producto_sin_desborde(factores, signo: float = 1.0) -> float:
         return math.copysign(math.inf, mantisa)
 
 
+def producto_cociente(a: float, b: float, c: float) -> float:
+    """a·b/c sin subdesborde ni desborde intermedios (mantisa y exponente).
+
+    a/c puede no ser representable aunque a·b/c sí: con a = 1e-300,
+    b = c = 1e300, a/c = 1e-600 subdesborda a 0 y el producto se pierde.
+    """
+    if a == 0 or b == 0:
+        return 0.0
+    m_a, e_a = math.frexp(a)
+    m_b, e_b = math.frexp(b)
+    m_c, e_c = math.frexp(c)
+    mantisa, e_n = math.frexp(m_a * m_b / m_c)
+    try:
+        return math.ldexp(mantisa, e_a + e_b - e_c + e_n)
+    except OverflowError:
+        return math.copysign(math.inf, mantisa)
+
+
+def restar_multiplo_de_fila(M: Matrix, cotas: Optional["CotasDeRedondeo"], destino: int, origen: int,
+                            numerador: float, denominador: float, desde: int = 0) -> Optional[float]:
+    """M[destino] -= (numerador / denominador) · M[origen], columnas >= desde.
+
+    La operación elemental de Gauss, Gauss-Jordan y solve_system_direct.
+    Si el multiplicador numerador/denominador es un float normal, se usa como
+    siempre (mismo redondeo que antes) y se devuelve. Si subdesborda o
+    desborda -- filas de escalas que difieren en más de ~1e308, p. ej.
+    1e-300 / 1e300 --, multiplicarlo perdería la fila entera: cada término se
+    calcula como numerador · M[origen][j] / denominador sin formar el
+    cociente, y se devuelve None para que el paso muestre el multiplicador
+    como cociente. Las cotas de redondeo se actualizan igual.
+    """
+    fila_d, fila_o = M[destino], M[origen]
+    factor = numerador / denominador
+    if factor != 0.0 and math.isfinite(factor) and abs(factor) >= sys.float_info.min:
+        for j in range(desde, len(fila_d)):
+            fila_d[j] = fila_d[j] - factor * fila_o[j]
+        if cotas is not None:
+            cotas.restar(destino, origen, factor, desde=desde)
+        return factor
+    for j in range(desde, len(fila_d)):
+        fila_d[j] = fila_d[j] - producto_cociente(numerador, fila_o[j], denominador)
+    if cotas is not None:
+        for j in range(desde, len(cotas.S[destino])):
+            cotas.S[destino][j] = cotas.S[destino][j] + producto_cociente(
+                abs(numerador), cotas.S[origen][j], abs(denominador))
+    return None
+
+
 class CotasDeRedondeo:
     """El criterio de cero de este módulo, para métodos que hacen su propia
     eliminación paso a paso (Gauss, Gauss-Jordan).
@@ -598,6 +646,11 @@ def inverse(A: Matrix, tol: Optional[float] = None, frame: list | None = None, b
     m, n = shape_of(A)
     if m != n:
         raise ValueError("La inversa sólo está definida para matrices cuadradas.")
+    # Mismo umbral que rank_of(A) (matriz n×n). Antes se usaba _tau(n, 2n)
+    # por las columnas de [A | I]: el doble de margen, y una matriz que
+    # rank_of / is_singular declaraban de rango completo podía quedarse "sin
+    # pivote" acá ([[1,1],[1,1+1e-11]]). Las decisiones de pivote sólo miran
+    # columnas de A, así que deben usar exactamente el criterio de rank_of.
 
     # Si se pide, comprobar propiedades relacionadas con sistemas Ax = b o Ax = 0
     if b is not None and len(b) != m:
@@ -635,7 +688,7 @@ def inverse(A: Matrix, tol: Optional[float] = None, frame: list | None = None, b
     M = [list(map(float, row)) + [1.0 if i == j else 0.0 for j in range(n)] for i, row in enumerate([r[:] for r in A])]
     # Cota de redondeo por entrada (ver el criterio al principio del módulo).
     S = [[abs(x) for x in row] for row in M]
-    tau = _tau(n, 2 * n)
+    tau = _tau(n, n)
     steps_list: List[str] = []
     # registrar estado inicial en frame si se proporcionó
     if frame is not None:

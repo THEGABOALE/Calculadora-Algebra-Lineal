@@ -41,7 +41,7 @@ import copy
 import math
 from typing import Any, Dict, List, Optional, Tuple
 
-from core.matrix_tools import CotasDeRedondeo, producto_sin_desborde
+from core.matrix_tools import CotasDeRedondeo, producto_sin_desborde, restar_multiplo_de_fila
 from core.system_solver.gauss_solver import solve_from_upper, analyze_argumented
 from utils.printMethods import log_step
 
@@ -121,15 +121,17 @@ class GaussMethod(Matrix):
                 if cotas.es_cero(aug[r][col], r, col):
                     aug[r][col] = 0.0
                     continue
-                factor = aug[r][col] / pivot_val
-                for c in range(col, n + 1):
-                    aug[r][c] -= factor * aug[row][c]
-                cotas.restar(r, row, factor, desde=col)
+                entrada = aug[r][col]
+                factor = restar_multiplo_de_fila(aug, cotas, r, row, entrada, pivot_val, desde=col)
                 aug[r][col] = 0.0
                 for c in range(col + 1, n + 1):
                     if cotas.es_cero(aug[r][c], r, c):
                         aug[r][c] = 0.0
-                log_step(self.frame, f"F{r+1} -> F{r+1} - ({format_number(factor)})*F{row+1}", aug, det=None, tag="elim")
+                # Si el multiplicador no es representable (1e-300/1e300), se
+                # muestra como cociente: es el que se aplicó, término a término.
+                texto_factor = format_number(factor) if factor is not None else \
+                    f"{format_number(entrada)}/{format_number(pivot_val)}"
+                log_step(self.frame, f"F{r+1} -> F{r+1} - ({texto_factor})*F{row+1}", aug, det=None, tag="elim")
             row += 1
         self.matriz = aug
         self.filas = len(aug)

@@ -40,7 +40,7 @@ from core.matrix import Matrix
 from core.system_solver.gauss_solver import analyze_argumented, solve_from_upper
 from utils.EquationFunctions import format_number
 from utils.printMethods import log_step, print_parametric_solution_from_rref
-from core.matrix_tools import CotasDeRedondeo, determinant
+from core.matrix_tools import CotasDeRedondeo, determinant, restar_multiplo_de_fila
 # Singularidad de A sobre la matriz de coeficientes ORIGINAL (rango por el
 # criterio de matrix_tools). Alias para no confundirla con el método
 # GaussJordanMethod.is_singular().
@@ -177,19 +177,20 @@ class GaussJordanMethod(Matrix):
             self.matriz[target_r][pivot_c] = 0.0
             return
 
-        factor = entrada / pivot_val
         row_len = len(self.matriz[0])
-        for j in range(pivot_c, row_len):
-            self.matriz[target_r][j] = self.matriz[target_r][j] - factor * self.matriz[pivot_r][j]
-        cotas.restar(target_r, pivot_r, factor, desde=pivot_c)
+        factor = restar_multiplo_de_fila(self.matriz, cotas, target_r, pivot_r, entrada, pivot_val, desde=pivot_c)
         self.matriz[target_r][pivot_c] = 0.0
         for j in range(pivot_c + 1, row_len):
             if cotas.es_cero(self.matriz[target_r][j], target_r, j):
                 self.matriz[target_r][j] = 0.0
 
-        signo= "+" if factor < 0 else "-"
+        negativo = (entrada < 0) != (pivot_val < 0)
+        signo = "+" if negativo else "-"
+        # Multiplicador no representable (1e-300/1e300): se muestra como cociente.
+        magnitud = format_number(abs(factor)) if factor is not None else \
+            f"({format_number(abs(entrada))}/{format_number(abs(pivot_val))})"
         log_step(self.frame,
-                 f"F{target_r+1} -> F{target_r+1} {signo} {format_number(abs(factor))}*F{pivot_r+1}",
+                 f"F{target_r+1} -> F{target_r+1} {signo} {magnitud}*F{pivot_r+1}",
                  self.matriz, det=None, tag="elim")
         
     # ----------------------

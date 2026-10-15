@@ -215,7 +215,7 @@ def solve_system_direct(A: List[List[float]], b: List[float], tol: Optional[floa
     '''
     # Import local: core.matrix_tools no depende de este módulo, pero así
     # quien sólo use analyze_argumented/solve_from_upper no lo carga.
-    from core.matrix_tools import CotasDeRedondeo
+    from core.matrix_tools import CotasDeRedondeo, restar_multiplo_de_fila
 
     m = len(A)
     if len(b) != m:
@@ -251,10 +251,7 @@ def solve_system_direct(A: List[List[float]], b: List[float], tol: Optional[floa
             if cotas.es_cero(aug[r][col], r, col):
                 aug[r][col] = 0.0
                 continue
-            factor = aug[r][col] / pivot_val
-            for c in range(col, n + 1):
-                aug[r][c] -= factor * aug[row][c]
-            cotas.restar(r, row, factor, desde=col)
+            restar_multiplo_de_fila(aug, cotas, r, row, aug[r][col], pivot_val, desde=col)
             aug[r][col] = 0.0
             for c in range(col + 1, n + 1):
                 if cotas.es_cero(aug[r][c], r, c):
