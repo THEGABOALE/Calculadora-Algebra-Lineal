@@ -192,6 +192,34 @@ class TestCoherenciaEnGrados(_Base):
         self.assertNotIn(r'^\circ', data['details'][-1]['lines'][0])
 
 
+class TestLatexConservaLasLlamadasTrigonometricas(_Base):
+    """Revisión de Codex en el PR #27: si latex_a_texto() simplificara en
+    radianes antes de que llegue el modo (sin(pi/6) -> 1/2,
+    sin(x + pi) -> -sin(x)), 'deg' se aplicaría sobre una expresión ya
+    convertida. El parser LaTeX de sympy construye cada llamada sin
+    evaluarla, así que la conversión a grados ve el argumento original.
+    Estos casos lo fijan de punta a punta."""
+
+    def test_latex_a_texto_no_evalua_valores_especiales(self):
+        from api.adapters.latex import latex_a_texto
+        self.assertEqual(latex_a_texto(r'x+\sin(\frac{\pi}{6})'), 'x + sin(pi/6)')
+        self.assertEqual(latex_a_texto(r'\sin(x+\pi)'), 'sin(pi + x)')
+        self.assertEqual(latex_a_texto(r'\sin(\pi)'), 'sin(pi)')
+
+    def test_constante_trigonometrica_en_grados(self):
+        # sin(pi/6) con pi/6 ≈ 0.5236 grados, no 1/2: raíz ≈ -0.00914.
+        data = self.secante(r'x+\sin(\frac{\pi}{6})', -1, 1, 'deg')
+        self.assertAlmostEqual(data['root'], -sen_g(math.pi / 6), places=10)
+        self.assertNotAlmostEqual(data['root'], -0.5, places=3)
+
+    def test_argumento_desplazado_por_pi_en_grados(self):
+        # sin(x + pi) en grados: pi es 3.14159…, no 180°, así que no vale
+        # sin(x + pi) = -sin(x). La raíz cerca de 0 es x = -pi.
+        data = self.secante(r'\sin(x+\pi)', 10, 20, 'deg')
+        self.assertAlmostEqual(data['root'], -math.pi, places=8)
+        self.assertAlmostEqual(sen_g(data['root'] + math.pi), 0.0, places=12)
+
+
 class TestNuclearSinApi(unittest.TestCase):
     """El modo vive en core/: el CLI o cualquier otro consumidor lo hereda."""
 
