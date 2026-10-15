@@ -37,6 +37,8 @@ DECIMALES_MAXIMOS = 15
 # Límites de entrada: suficientes para cualquier dato de clase y
 # acotados para que la resta exacta no necesite una precisión ilimitada.
 EXPONENTE_MAXIMO = 100  # |m| y |m~| entre 1e-100 y 1e100 (o 0)
+_MAGNITUD_MAXIMA = Decimal(1).scaleb(EXPONENTE_MAXIMO)
+_MAGNITUD_MINIMA = Decimal(1).scaleb(-EXPONENTE_MAXIMO)
 CIFRAS_MAXIMAS = 50
 
 PRECISION_RELATIVO = 50
@@ -72,7 +74,10 @@ def leer_decimal(texto: Numero, nombre: str) -> Decimal:
         ) from None
     if not valor.is_finite():
         raise ValueError(f"El {nombre} debe ser un número finito; se recibió {crudo!r}.")
-    if valor != 0 and abs(valor.adjusted()) > EXPONENTE_MAXIMO:
+    # Comparación directa con los límites, no por exponente: adjusted()
+    # vale 100 tanto para 1e100 como para 9e100.
+    magnitud = valor.copy_abs()
+    if valor != 0 and not _MAGNITUD_MINIMA <= magnitud <= _MAGNITUD_MAXIMA:
         raise ValueError(
             f"El {nombre} está fuera del rango admitido "
             f"(entre 1e-{EXPONENTE_MAXIMO} y 1e{EXPONENTE_MAXIMO} en valor absoluto)."
@@ -103,12 +108,22 @@ def texto_redondeado(valor: Decimal, decimales: int) -> str:
 
     Si el redondeo daría 0 para un valor distinto de cero, se usa notación
     científica con `decimales` decimales en la mantisa.
+
+    Todo el redondeo usa el contexto del módulo (ROUND_HALF_UP), nunca el
+    contexto decimal global: el resultado no depende de quién lo haya
+    cambiado (format() con "E" redondearía con el global, ROUND_HALF_EVEN
+    por defecto: 2.5e-7 daría 2E-7 en vez de 3E-7).
     """
-    cuanto = Decimal(1).scaleb(-decimales)
+    cuanto = Decimal(1).scaleb(-decimales, context=_EXACTO)
     fijo = valor.quantize(cuanto, context=_EXACTO)
     if fijo == 0 and valor != 0:
-        texto = format(valor, f".{decimales}E")
-        mostrado = Decimal(texto)
+        exponente = valor.adjusted()
+        mantisa = valor.scaleb(-exponente, context=_EXACTO).quantize(cuanto, context=_EXACTO)
+        if mantisa.copy_abs() >= 10:  # 9.96 con 1 decimal -> 10.0: renormalizar
+            exponente += 1
+            mantisa = valor.scaleb(-exponente, context=_EXACTO).quantize(cuanto, context=_EXACTO)
+        texto = f"{format(mantisa, 'f')}E{exponente:+d}"
+        mostrado = mantisa.scaleb(exponente, context=_EXACTO)
     else:
         texto = format(fijo, "f")
         mostrado = fijo

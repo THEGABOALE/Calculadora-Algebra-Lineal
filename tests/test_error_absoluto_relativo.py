@@ -134,6 +134,41 @@ class TestNucleo(unittest.TestCase):
         self.assertEqual(self.leer('+7', 'm'), Decimal('7'))
         self.assertEqual(self.leer('.5', 'm'), Decimal('0.5'))
 
+    def test_limites_de_magnitud_exactos(self):
+        # Revisión de Codex (PR #28): adjusted() dejaba pasar 9e100 aunque
+        # el límite documentado es 1e100.
+        for texto in ['1e100', '-1e100', '1e-100', '-1e-100', '0', '0e500']:
+            with self.subTest(texto=texto):
+                self.leer(texto, 'm')
+        for texto in ['9e100', '1.0000001e100', '-2e100', '9e-101', '-9.9e-101']:
+            with self.subTest(texto=texto):
+                with self.assertRaises(ValueError):
+                    self.leer(texto, 'm')
+
+    def test_notacion_cientifica_redondea_mitad_hacia_arriba(self):
+        # Revisión de Codex (PR #28): la rama científica usaba el contexto
+        # decimal global (ROUND_HALF_EVEN) en vez de ROUND_HALF_UP.
+        from core.numeric.errores import texto_redondeado
+        self.assertEqual(texto_redondeado(Decimal('2.5e-7'), 0), '≈ 3E-7')
+        self.assertEqual(texto_redondeado(Decimal('3.5e-7'), 0), '≈ 4E-7')
+        self.assertEqual(texto_redondeado(Decimal('1.25e-9'), 1), '≈ 1.3E-9')
+        self.assertEqual(texto_redondeado(Decimal('-2.5e-7'), 0), '≈ -3E-7')
+        # La mantisa que redondea a 10 se renormaliza.
+        self.assertEqual(texto_redondeado(Decimal('9.96e-7'), 1), '≈ 1.0E-6')
+        self.assertEqual(texto_redondeado(Decimal('1e-9'), 6), '1.000000E-9')
+
+    def test_presentacion_no_depende_del_contexto_global(self):
+        from decimal import ROUND_DOWN, localcontext
+        from core.numeric.errores import texto_redondeado
+        with localcontext() as ctx:
+            ctx.rounding = ROUND_DOWN
+            ctx.prec = 3
+            self.assertEqual(texto_redondeado(Decimal('2.9e-7'), 0), '≈ 3E-7')
+            self.assertEqual(texto_redondeado(Decimal('0.123456789'), 6), '≈ 0.123457')
+            r = self.calcular('3.1415', '3.14', decimales=4)
+        self.assertEqual(r['error_relativo']['texto'], '≈ 0.0005')
+        self.assertEqual(r['error_absoluto']['valor'], Decimal('0.0015'))
+
     def test_decimales_fuera_de_rango(self):
         for d in (-1, 16):
             with self.assertRaises(ValueError):
@@ -202,7 +237,7 @@ class TestEndpoint(unittest.TestCase):
         return mensaje
 
     def test_entradas_invalidas_400(self):
-        for valor in ['', 'abc', 'NaN', 'inf', '-Infinity', '1/3', '1e1000']:
+        for valor in ['', 'abc', 'NaN', 'inf', '-Infinity', '1/3', '1e1000', '9e100']:
             with self.subTest(valor=valor):
                 self.assertValidacion({'true_value': valor, 'approx_value': '1'}, 'true_value')
                 self.assertValidacion({'true_value': '1', 'approx_value': valor}, 'approx_value')
