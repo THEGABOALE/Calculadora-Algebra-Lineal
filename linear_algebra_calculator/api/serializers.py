@@ -15,6 +15,8 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from core.numeric.errores import DECIMALES_MAXIMOS, DECIMALES_POR_DEFECTO, leer_decimal
+
 
 class MatrixOperateSerializer(serializers.Serializer):
     operation = serializers.ChoiceField(
@@ -355,3 +357,52 @@ class SecantSerializer(serializers.Serializer):
     # cualquier texto y se ignoraba: 'deg' devolvía la raíz en radianes. La
     # conversión vive en core/numeric/_expresiones.py; omitido = 'rad'.
     angle_mode = serializers.ChoiceField(choices=["rad", "deg"], required=False, default="rad")
+
+
+# ---------------------------------------------------------------------------
+# Cálculo de errores.
+#
+# Los valores llegan como texto (el frontend manda strings) y se validan con
+# el mismo lector que usa core/numeric/errores.py: una sola regla de "qué es
+# un número válido" para la API y para cualquier otro consumidor. Los
+# mensajes van en castellano porque el frontend los muestra tal cual.
+# ---------------------------------------------------------------------------
+
+def _valor_numerico(nombre: str) -> serializers.CharField:
+    return serializers.CharField(error_messages={
+        "required": f"Falta el {nombre}.",
+        "blank": f"Ingresá el {nombre}.",
+        "null": f"Ingresá el {nombre}.",
+        "invalid": f"El {nombre} debe ser un número.",
+    })
+
+
+class AbsRelErrorSerializer(serializers.Serializer):
+    true_value = _valor_numerico("valor verdadero")
+    approx_value = _valor_numerico("valor aproximado")
+    decimals_display = serializers.IntegerField(
+        required=False,
+        default=DECIMALES_POR_DEFECTO,
+        min_value=0,
+        max_value=DECIMALES_MAXIMOS,
+        error_messages={
+            "invalid": "La cantidad de decimales debe ser un número entero.",
+            "null": "La cantidad de decimales debe ser un número entero.",
+            "min_value": "La cantidad de decimales no puede ser negativa.",
+            "max_value": f"La cantidad de decimales no puede superar {DECIMALES_MAXIMOS}.",
+        },
+    )
+
+    @staticmethod
+    def _leer(valor: str, nombre: str) -> str:
+        try:
+            leer_decimal(valor, nombre)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        return valor
+
+    def validate_true_value(self, valor):
+        return self._leer(valor, "valor verdadero")
+
+    def validate_approx_value(self, valor):
+        return self._leer(valor, "valor aproximado")

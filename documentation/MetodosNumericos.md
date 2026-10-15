@@ -5,7 +5,8 @@
 > `core/numeric/metodos_cerrados.py` (Bisección, Regla Falsa)\
 > `core/numeric/metodos_abiertos.py` (Newton-Raphson, Secante)\
 > (interfaz CLI) `cli/numeric_io.py` (entrada/salida por consola), `cli/numerical_methods_runners.py`, `cli/startup.py` opción `[8]`\
-> (interfaz API) `api/adapters/numerico.py`, `api/adapters/latex.py`
+> (interfaz API) `api/adapters/numerico.py`, `api/adapters/latex.py`\
+> `core/numeric/errores.py` (error absoluto y relativo, sección 9)
 
 Documento técnico que describe los cuatro métodos de búsqueda de raíces del proyecto: dos cerrados (requieren un intervalo con cambio de signo) y dos abiertos (requieren punto(s) inicial(es), sin garantía de convergencia).
 
@@ -188,4 +189,43 @@ print(r2["derivada_latex"])  # "2 x"
 # criterio por longitud de intervalo, con estimación previa de iteraciones
 r3 = metodo_biseccion("x**2 - 2", 1.0, 2.0, tolerancia=1e-8, criterio="intervalo")
 print(r3["estimacion_iteraciones"]["n_minimo"])
+```
+
+---
+
+## 9. Error absoluto y relativo
+
+`core/numeric/errores.py`, expuesto en `POST /api/v1/numeric/abs-rel-error` (issue #9).
+
+```py
+calcular_error_absoluto_relativo(valor_verdadero, valor_aproximado, decimales=6) -> Dict
+```
+
+Definiciones, con `m` el valor verdadero y `m̃` la aproximación:
+
+- error absoluto: `Ea = |m - m̃|`;
+- error relativo: `Er = |m - m̃| / |m|`, sólo si `m ≠ 0`. Con `m = 0` es **indefinido**: `valor`, `texto` y `porcentaje` son `None` y `nota` lo explica. No se inventa un número.
+
+Los dos son siempre `≥ 0`, sea cual sea el signo de `m` y `m̃`. (La implementación del repositorio de referencia calculaba `m - m̃` con signo y rotulaba la fórmula como `xr - x` sobre `x`; acá se usan las definiciones de arriba.)
+
+**Aritmética decimal.** Las entradas se leen con `decimal.Decimal` desde el texto tal como se escribió (`leer_decimal`), no con `float`: un cálculo de error no puede introducir el error de representación que pretende medir (`0.3 - 0.1` da `0.2`, no `0.19999999999999998`). La resta es exacta; el cociente de `Er` se calcula con 50 cifras significativas.
+
+**Entradas admitidas:** enteros, decimales con punto y notación científica (`3.14`, `-2`, `.5`, `1e-5`). Se rechazan con `ValueError` (en la API, `400 VALIDATION_ERROR` con el mensaje por campo): vacío, texto no numérico, `NaN`, infinitos, fracciones `a/b`, coma decimal, magnitudes fuera de `1e-100 … 1e100` y más de 50 cifras significativas.
+
+**Presentación.** `decimales` (0 a 15; 6 por defecto) sólo controla cómo se muestra el resultado, no la precisión interna. Mismo criterio que `format_number`: un valor redondeado al mostrarse lleva `≈` (`0.000477… → "≈ 0.0005"`); uno exacto, no (`"0.0015"`). Un error distinto de cero nunca se muestra como `0`: si con `decimales` quedaría en cero, pasa a notación científica (`1e-9` con 6 decimales → `"1.000000E-9"`). La sustitución usa los valores tal como se ingresaron, sin redondear.
+
+Respuesta de la API (las claves que lee `ErrorAbsRelInputs.tsx`, más campos agregados que el frontend puede ignorar):
+
+```json
+{
+  "input": {"true_value": "3.1415", "approx_value": "3.14",
+            "true_value_pretty": "3.1415", "approx_value_pretty": "3.14", "decimals_display": 4},
+  "absolute_error": {"operation": {"numerator": "|m - m̃|"},
+                     "formula": {"numerator": "|3.1415 - 3.14|"},
+                     "result": "0.0015", "exact": "0.0015"},
+  "relative_error": {"operation": {"numerator": "|m - m̃|", "denominator": "|m|"},
+                     "formula": {"numerator": "|3.1415 - 3.14|", "denominator": "|3.1415|"},
+                     "result": "≈ 0.0005", "exact": "0.000477478911348082…",
+                     "percent": "≈ 0.0477 %", "defined": true, "note": null}
+}
 ```
