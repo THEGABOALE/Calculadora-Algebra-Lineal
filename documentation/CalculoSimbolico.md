@@ -1,10 +1,12 @@
-# Cálculo simbólico: derivadas
+# Cálculo simbólico: derivadas e integrales
 
 > **Archivos:**\
-> `core/calculo.py` (derivada simbólica)\
+> `core/calculo.py` (derivada e integral simbólicas)\
 > `core/numeric/_expresiones.py` (`parsear`, compartido con los métodos numéricos)\
 > (interfaz API) `api/adapters/calculo.py`, `api/adapters/latex.py`\
-> (frontend) `frontend/src/components/general/DerivativeInputs.tsx`
+> (frontend) `frontend/src/components/general/DerivativeInputs.tsx`, `IntegralInputs.tsx`
+
+Secciones 1 a 7: derivadas (issue #10). Sección 8: integrales indefinidas (issue #12).
 
 ## 1. Qué hace
 
@@ -80,3 +82,66 @@ La ruta se llama `derivate` (sic) porque es la que ya usaba `frontend/src/api/cl
 | `t^{3}+\cos(t)` (variable `t`) | `3 t^{2} - \sin{\left(t \right)}` |
 
 sympy y antlr se importan dentro de las funciones, nunca a nivel de módulo: importar `core.calculo` no carga ninguno de los dos, y el CLI sigue arrancando sin ellos.
+
+## 8. Integrales indefinidas
+
+`POST /api/v1/calculus/integral` (issue #12):
+
+```py
+integrar_simbolica(f_str, variable="x") -> Dict        # sin límite de tiempo
+integrar_con_limite(f_str, variable="x", segundos=10)  # la que usa la API
+```
+
+$$\int f(x)\,dx = F(x) + C, \qquad F'(x) = f(x)$$
+
+**Entrada y variable.** Mismo recorrido que las derivadas (sección 2): LaTeX estricto (con el rechazo de exponentes y factoriales numéricos mayores que 1000 sobre el árbol sin evaluar), `parsear()` con la variable elegida (una letra minúscula distinta de `e`, `x` por defecto, la expresión sólo puede usar esa letra), variable **real**, decimales a racionales exactos (`0.5x^2 → x³/6`), rechazo de operadores de cálculo. Además, el integrando no puede superar 60 operaciones (`count_ops`).
+
+**Constante de integración.** `+ C` se agrega sólo al LaTeX (`result.latex`); `result.expression` es `F` sin la constante, para que la primitiva siga siendo verificable. Si `F = 0` (integrando nulo), el LaTeX es `C`.
+
+**Dominio real y logaritmos.** Un `ln(u)` de la primitiva se muestra como `ln|u|` salvo que `u` sea positivo o que el integrando ya contenga `ln(u)` (lo que restringe el dominio a `u > 0`): `∫1/x = ln|x| + C` (válida por separado en cada intervalo que no contiene al 0), `∫tan x = −ln|cos x| + C`, `∫2x/(x²+1) = ln(x²+1) + C`, pero `∫ln x = x ln x − x + C`. `ln|u|` y `ln u` tienen la misma derivada `u'/u` donde están definidas.
+
+**Verificación.** Antes de devolverla, la primitiva se deriva y se compara con el integrando; la verificación nunca termina bien sin haber comparado: (1) en nueve puntos fijos `n/7` de ambos signos; (2) si ninguno está en el dominio real de `f` (`ln(x − 100)` sólo existe para `x > 100`), en puntos dentro de ese dominio, calculado con `continuous_domain`; (3) si tampoco hay, la diferencia simbólica `F' − f` simplificada tiene que dar 0. Un dominio real vacío (`√(−1 − x²)`) o una primitiva que no se puede comprobar se rechazan con `422 INTEGRAL_NOT_RESOLVED`. Todo corre en el proceso hijo, dentro del límite de tiempo. Los tests lo comprueban además de forma independiente para cada caso.
+
+**Política para resultados no elementales.**
+
+| sympy devuelve | respuesta |
+|---|---|
+| primitiva con funciones elementales | `200` |
+| primitiva con funciones especiales admitidas: `erf`, `erfi`, `erfc`, `Si`, `Ci`, `Shi`, `Chi`, `Ei`, `li`, Fresnel `S`/`C` (`fresnels`/`fresnelc`) | `200`, con `special_functions`, `note` y la definición de cada una en `definitions` (LaTeX). Es una primitiva correcta (`F' = f`), no elemental. |
+| la integral sin evaluar (`Integral`) | `422 INTEGRAL_NOT_RESOLVED`: "sympy no encontró una primitiva… Eso no prueba que no exista" |
+| una primitiva por tramos (`Piecewise`, p. ej. `∫|x|`) u otras funciones especiales | `422 INTEGRAL_NOT_RESOLVED` |
+
+El mensaje nunca afirma que la función no tenga primitiva elemental: sólo que el motor no la encontró. Ejemplos: `∫e^{−x²} = (√π/2)·erf(x) + C`, `∫1/ln x = li(x) + C`, `∫sin x / x = Si(x) + C`, `∫sin(x²)` en términos de Fresnel (las constantes con Γ se simplifican); `∫x^x`, `∫sin(sin x)` y `∫√(tan x)` quedan sin resolver.
+
+**Tiempo.** `sympy.integrate` no tiene límite propio y hay integrandos breves que no terminan (`∫1/(x⁵+x+1)` supera los 30 s). La API integra en un **proceso aparte** (`multiprocessing`, contexto `spawn`, igual en Windows y Linux) y lo **termina** (`terminate`, y `kill` si hiciera falta) si no responde dentro de `TIEMPO_MAXIMO_INTEGRAL_S = 10 s`, arranque incluido (~1.5 s en Windows por importar sympy en el hijo): menos que los 15 s del timeout de axios, con margen para la red y el render. Un hilo no sirve: no se puede cancelar y seguiría consumiendo CPU después de responder. A lo sumo 2 integrales corren a la vez **en toda la máquina**, no por proceso del servidor (con varios workers WSGI/ASGI un semáforo de `threading` se multiplicaría por worker): cada turno es un archivo en el directorio temporal con un bloqueo del sistema operativo (`msvcrt.locking` en Windows, `fcntl.flock` en Linux), que comparten todos los procesos y que el sistema libera aunque el proceso muera. Si no hay turno en 1 s, la respuesta es `503 SERVER_BUSY`. Con varias máquinas, el límite es por máquina. Los errores de entrada se detectan **antes** de lanzar el proceso (respuesta inmediata, sin pagar el arranque).
+
+| situación | HTTP | `error.code` |
+|---|---|---|
+| entrada inválida | 400 | `VALIDATION_ERROR` |
+| sin primitiva presentable | 422 | `INTEGRAL_NOT_RESOLVED` |
+| tiempo agotado | 422 | `INTEGRAL_TIMEOUT` |
+| demasiadas integrales en curso | 503 | `SERVER_BUSY` |
+
+**Contrato.** Entrada `{"function_latex": "x^{2}", "variable": "x"}` (`variable` opcional). Respuesta `200`:
+
+```json
+{"ok": true,
+ "data": {"input": {"latex": "x^{2}", "variable": "x", "interpreted_latex": "x^{2}", "expression": "x**2"},
+          "result": {"latex": "\\frac{x^{3}}{3} + C", "expression": "x**3/3",
+                     "special_functions": [], "definitions": {}, "note": null}}}
+```
+
+El LaTeX usa `\ln` y `\arctan` (no `\log`/`\operatorname{atan}`) y sólo comandos que MathQuill 0.10 renderiza (sin el espaciado `\,`).
+
+| Integrando | `result.latex` |
+|---|---|
+| `x^{2}` | `\frac{x^{3}}{3} + C` |
+| `7` | `7 x + C` |
+| `0` | `C` |
+| `\sin(x)` | `- \cos{\left(x \right)} + C` |
+| `e^{x}` | `e^{x} + C` |
+| `\ln(x)` | `x \ln{\left(x \right)} - x + C` |
+| `\frac{1}{x}` | `\ln{\left(\left\|{x}\right\| \right)} + C` |
+| `\frac{1}{x^{2}+1}` | `\arctan{\left(x \right)} + C` |
+| `t^{2}` (variable `t`) | `\frac{t^{3}}{3} + C` |
+| `e^{-x^{2}}` | `\frac{\sqrt{\pi} \operatorname{erf}{\left(x \right)}}{2} + C` |

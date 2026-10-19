@@ -2,7 +2,7 @@ from rest_framework.response import Response
 from rest_framework.views import APIView
 from rest_framework import status
 
-from api.adapters.calculo import derivative
+from api.adapters.calculo import derivative, integral
 from api.adapters.determinant import matrix_determinant
 from api.adapters.matrices import matrix_operate
 from api.adapters.numerico import (
@@ -22,6 +22,7 @@ from api.serializers import (
     BisectionSerializer,
     DerivativeSerializer,
     ErrorAccumulationSerializer,
+    IntegralSerializer,
     FalsePositionSerializer,
     MatrixDeterminantSerializer,
     MatrixOperateSerializer,
@@ -427,6 +428,56 @@ class PropagationErrorView(APIView):
             return Response(
                 {"error": {"code": "VALIDATION_ERROR", "message": str(exc)}},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class IntegralView(APIView):
+    """POST /api/v1/calculus/integral -- core/calculo.py.
+
+    - 400 VALIDATION_ERROR: la entrada no es válida (LaTeX, variable, letras
+      ajenas, operadores de cálculo, expresión demasiado larga o compleja).
+    - 422 INTEGRAL_NOT_RESOLVED: entrada válida, pero sympy no encontró una
+      primitiva presentable (integral sin evaluar, por tramos, o con
+      funciones especiales no admitidas).
+    - 422 INTEGRAL_TIMEOUT: entrada válida, pero el cálculo superó el
+      presupuesto de tiempo y se cortó.
+    - 503 SERVER_BUSY: ya hay demasiadas integrales en cálculo (transitorio).
+    """
+
+    def post(self, request):
+        from core.calculo import CalculoDemasiadoCostoso, IntegralNoResuelta, ServidorOcupado
+
+        serializer = IntegralSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": serializer.errors}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            result = integral(function_latex=data["function_latex"], variable=data["variable"])
+        except ValueError as exc:
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        except IntegralNoResuelta as exc:
+            return Response(
+                {"error": {"code": "INTEGRAL_NOT_RESOLVED", "message": str(exc)}},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
+            )
+        except ServidorOcupado as exc:
+            return Response(
+                {"error": {"code": "SERVER_BUSY", "message": str(exc)}},
+                status=status.HTTP_503_SERVICE_UNAVAILABLE,
+            )
+        except CalculoDemasiadoCostoso as exc:
+            return Response(
+                {"error": {"code": "INTEGRAL_TIMEOUT", "message": str(exc)}},
+                status=status.HTTP_422_UNPROCESSABLE_ENTITY,
             )
 
         return Response(result, status=status.HTTP_200_OK)

@@ -218,5 +218,5 @@ la interfaz API (endpoint, request, response), y ejemplos de uso.
 - [`CriterioNumerico.md`](documentation/CriterioNumerico.md) — cuándo un número calculado "es cero": el criterio compartido por rango, determinante, inversa y Cramer, su calibración y sus límites; y cómo `format_number` muestra números chicos.
 - [`NotacionPosicional.md`](documentation/NotacionPosicional.md) — descomposición en base 10 y base 2 (sólo CLI).
 - [`MetodosNumericos.md`](documentation/MetodosNumericos.md) — bisección, regla falsa, Newton-Raphson, secante.
-- [`CalculoSimbolico.md`](documentation/CalculoSimbolico.md) — derivadas simbólicas (`calculus/derivate`): traducción del LaTeX, variable de derivación y simplificación.
+- [`CalculoSimbolico.md`](documentation/CalculoSimbolico.md) — derivadas e integrales simbólicas (`calculus/derivate`, `calculus/integral`): traducción del LaTeX, variable, simplificación, primitivas no elementales y límite de tiempo.
 - [`AppWeb.md`](documentation/AppWeb.md) — cómo la API consume `core/`, la lista completa de endpoints, y qué capacidad del motor **no** está expuesta vía API todavía (a propósito, no por olvido).

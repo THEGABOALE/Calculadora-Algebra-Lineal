@@ -100,7 +100,11 @@ export async function derivativeMethod(payload: { latex: string; variable?: stri
 }
 
 export async function integralMethod(payload: { latex: string; variable?: string }) {
-  const body: any = { function_latex: payload.latex };
+  // Igual que derivativeMethod: variable omitida = x; vacía, el backend la
+  // rechaza. El cálculo puede tardar hasta ~10 s (límite del servidor),
+  // dentro del timeout de 15 s de este cliente.
+  const body: { function_latex: string; variable?: string } = { function_latex: payload.latex };
+  if (payload.variable !== undefined) body.variable = payload.variable;
   const res = await client.post('api/v1/calculus/integral', body);
   return res.data;
 }
