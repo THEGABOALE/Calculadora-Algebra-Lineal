@@ -2,24 +2,44 @@ import React, { useState } from 'react';
 import { Button } from '../ui/button';
 import { errorAcumulado } from '../../api/client';
 
+// Los valores numéricos llegan como texto decimal: el backend calcula con
+// Decimal y pasarlos por number perdería justamente la precisión que se mide.
+// *_pretty ya viene formateado (con "≈" si está redondeado para mostrarse).
 type ApiRow = {
   iteration: number;
   prev_amount_pretty: string;
+  prev_amount_real_pretty?: string;
+  prev_amount_approx_pretty?: string;
   interest_real_pretty: string;
   interest_approx_pretty: string;
   amount_real_pretty: string;
   amount_approx_pretty: string;
-  difference: number;
-  error_accum: number;
+  difference: string;
+  difference_pretty?: string;
+  error_accum: string;
+  error_accum_pretty?: string;
   approx_mode?: string;
   approx_operation_text?: string;
 }
 
+type ApiSummary = {
+  iterations?: number;
+  initial_amount_pretty?: string;
+  initial_amout_pretty?: string;
+  final_amount_real_pretty?: string;
+  final_amount_approx_pretty?: string;
+  final_error_accum_pretty?: string;
+  rate?: string;
+  rate_percent?: string;
+  mode?: 'trunc' | 'round';
+  approx_operation_text?: string;
+}
+
 type ApiResponse = {
-  input?: any;
+  input?: { initial_amount?: string; mode?: 'trunc' | 'round'; rate?: string };
   data?: {
     rows: ApiRow[];
-    summary: any;
+    summary?: ApiSummary;
   }
 }
 
@@ -34,6 +54,28 @@ interface Props {
   }) => void;
 }
 
+// El backend responde {"error": {"code", "message"}}; message es un texto o,
+// en errores de validación, un objeto campo -> lista de mensajes. Se muestran
+// esos mensajes en vez del genérico "Request failed with status code 400".
+function mensajeDeError(err: any): string {
+  const message = err?.response?.data?.error?.message;
+  if (typeof message === 'string' && message) return message;
+  if (message && typeof message === 'object') {
+    const textos = Object.values(message).flat().map(String).filter(Boolean);
+    if (textos.length) return textos.join(' ');
+  }
+  return err?.message || 'Error en la petición';
+}
+
+// Campo vacío -> undefined (el backend lo rechaza con un mensaje), nunca 0.
+function entero(valor: string): number | undefined {
+  return valor.trim() === '' ? undefined : Number(valor);
+}
+
+function numeroONulo(valor: string): number | null {
+  return valor.trim() === '' ? null : Number(valor);
+}
+
 export function ErrorAcumuladoInputs({ onCalculate }: Props) {
   const [montoInicial, setMontoInicial] = useState<string>('');
   const [iteraciones, setIteraciones] = useState<string>('');
@@ -42,33 +84,34 @@ export function ErrorAcumuladoInputs({ onCalculate }: Props) {
   const [decimalesAproximados, setDecimalesAproximados] = useState<string>('');
   const [decimalesBase, setDecimalesBase] = useState<string>('');
 
-  function handleSubmit(e?: React.FormEvent) {
-    if (e) e.preventDefault();
-    const payload = {
-      initial_amount: montoInicial === '' ? '0' : String(montoInicial),
-      iterations: iteraciones === '' ? 0 : Number(iteraciones),
-      mode: modo,
-      rate: rate === '' ? '0' : String(rate),
-      approx_decimals: decimalesAproximados === '' ? 0 : Number(decimalesAproximados),
-      interest_display_decimals: decimalesBase === '' ? undefined : Number(decimalesBase),
-    };
-    onCalculate?.({
-      montoInicial: payload.initial_amount === '' ? null : Number(payload.initial_amount),
-      iteraciones: payload.iterations,
-      modo: payload.mode,
-      rate: payload.rate === '' ? null : Number(payload.rate),
-      decimalesAproximados: payload.approx_decimals,
-      decimalesBase: payload.interest_display_decimals ?? null,
-    });
-
-    fetchTable(payload);
-  }
-
   const [loading, setLoading] = useState(false);
   const [apiError, setApiError] = useState<string | null>(null);
   const [result, setResult] = useState<ApiResponse | null>(null);
 
-  async function fetchTable(payload: any) {
+  // Un solo disparador: el submit del formulario (botón type="submit" o
+  // Enter). Mientras hay una petición en curso no se envía otra.
+  function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (loading) return;
+    onCalculate?.({
+      montoInicial: numeroONulo(montoInicial),
+      iteraciones: numeroONulo(iteraciones),
+      modo,
+      rate: numeroONulo(rate),
+      decimalesAproximados: numeroONulo(decimalesAproximados),
+      decimalesBase: numeroONulo(decimalesBase),
+    });
+    fetchTable({
+      initial_amount: montoInicial.trim(),
+      iterations: entero(iteraciones),
+      mode: modo,
+      rate: rate.trim(),
+      approx_decimals: entero(decimalesAproximados),
+      interest_display_decimals: entero(decimalesBase),
+    });
+  }
+
+  async function fetchTable(payload: Parameters<typeof errorAcumulado>[0]) {
     setApiError(null);
     setLoading(true);
     setResult(null);
@@ -77,11 +120,17 @@ export function ErrorAcumuladoInputs({ onCalculate }: Props) {
       setResult(res as ApiResponse);
     } catch (err: any) {
       console.error(err);
-      setApiError(err?.message || 'Error en la petición');
+      setApiError(mensajeDeError(err));
     } finally {
       setLoading(false);
     }
   }
+
+  // Encabezados según el modo con el que se CALCULÓ la tabla, no el que esté
+  // seleccionado ahora en el formulario.
+  const modoCalculado = result?.input?.mode ?? modo;
+  const aprox = modoCalculado === 'trunc' ? 'truncado' : 'redondeado';
+  const summary = result?.data?.summary;
 
   return (
     <form onSubmit={handleSubmit} className="space-y-3">
@@ -98,7 +147,7 @@ export function ErrorAcumuladoInputs({ onCalculate }: Props) {
         </label>
 
         <label className="block">
-          <div className="text-xs text-white/80 mb-1">Iteraciones</div>
+          <div className="text-xs text-white/80 mb-1">Iteraciones (períodos)</div>
           <input
             className="w-full bg-white/3 rounded p-2 text-sm"
             value={iteraciones}
@@ -111,19 +160,19 @@ export function ErrorAcumuladoInputs({ onCalculate }: Props) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <label className="block">
-          <div className="text-xs text-white/80 mb-1">Modo</div>
+          <div className="text-xs text-white/80 mb-1">Aproximación del interés</div>
           <select
             className="w-full bg-white/3 rounded p-2 text-sm"
             value={modo}
             onChange={(e) => setModo(e.target.value as 'trunc' | 'round')}
           >
-            <option value="trunc">trunc</option>
-            <option value="round">round</option>
+            <option value="trunc">Truncar</option>
+            <option value="round">Redondear</option>
           </select>
         </label>
 
         <label className="block">
-          <div className="text-xs text-white/80 mb-1">Rate</div>
+          <div className="text-xs text-white/80 mb-1">Tasa por período (decimal: 0.05 = 5 %)</div>
           <input
             className="w-full bg-white/3 rounded p-2 text-sm"
             value={rate}
@@ -136,23 +185,23 @@ export function ErrorAcumuladoInputs({ onCalculate }: Props) {
 
       <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
         <label className="block">
-          <div className="text-xs text-white/80 mb-1">Decimales aproximados</div>
+          <div className="text-xs text-white/80 mb-1">Decimales de la aproximación</div>
           <input
             className="w-full bg-white/3 rounded p-2 text-sm"
             value={decimalesAproximados}
             onChange={(e) => setDecimalesAproximados(e.target.value)}
-            placeholder="Ej: 3"
+            placeholder="Ej: 2"
             inputMode="numeric"
           />
         </label>
 
         <label className="block">
-          <div className="text-xs text-white/80 mb-1">Decimales base</div>
+          <div className="text-xs text-white/80 mb-1">Decimales para mostrar (opcional, 4 por defecto)</div>
           <input
             className="w-full bg-white/3 rounded p-2 text-sm"
             value={decimalesBase}
             onChange={(e) => setDecimalesBase(e.target.value)}
-            placeholder="Ej: 5"
+            placeholder="Ej: 4"
             inputMode="numeric"
           />
         </label>
@@ -160,8 +209,9 @@ export function ErrorAcumuladoInputs({ onCalculate }: Props) {
 
       <div className="flex items-center justify-between mb-4">
           <Button
+            type="submit"
+            disabled={loading}
             className="bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700"
-            onClick={handleSubmit}
           >
             {loading ? 'Calculando...' : 'Calcular'}
           </Button>
@@ -178,26 +228,28 @@ export function ErrorAcumuladoInputs({ onCalculate }: Props) {
               <thead>
                 <tr className="text-left text-xs text-white/80">
                   <th className="px-3 py-2">Iteración</th>
-                  <th className="px-3 py-2">Monto anterior</th>
+                  <th className="px-3 py-2">Monto anterior real</th>
+                  <th className="px-3 py-2">Monto anterior {aprox}</th>
                   <th className="px-3 py-2">Interés real</th>
-                  <th className="px-3 py-2">Interés {modo === 'trunc' ? 'truncado' : 'redondeado'}</th>
+                  <th className="px-3 py-2">Interés {aprox}</th>
                   <th className="px-3 py-2">Monto real</th>
-                  <th className="px-3 py-2">Monto {modo === 'trunc' ? 'truncado' : 'redondeado'}</th>
-                  <th className="px-3 py-2">Diferencia</th>
-                  <th className="px-3 py-2">Error acumulado</th>
+                  <th className="px-3 py-2">Monto {aprox}</th>
+                  <th className="px-3 py-2" title="Interés real − interés aproximado de esta iteración">Diferencia de la iteración</th>
+                  <th className="px-3 py-2" title="Monto real − monto aproximado">Error acumulado</th>
                 </tr>
               </thead>
               <tbody>
                 {result.data.rows.map((r) => (
                   <tr key={r.iteration} className="odd:bg-white/3 even:bg-white/5 text-purple-200">
                     <td className="px-3 py-2">{r.iteration}</td>
-                    <td className="px-3 py-2">{r.prev_amount_pretty}</td>
+                    <td className="px-3 py-2">{r.prev_amount_real_pretty ?? r.prev_amount_pretty}</td>
+                    <td className="px-3 py-2">{r.prev_amount_approx_pretty ?? r.prev_amount_pretty}</td>
                     <td className="px-3 py-2">{r.interest_real_pretty}</td>
                     <td className="px-3 py-2">{r.interest_approx_pretty}</td>
                     <td className="px-3 py-2">{r.amount_real_pretty}</td>
                     <td className="px-3 py-2">{r.amount_approx_pretty}</td>
-                    <td className="px-3 py-2">{r.difference}</td>
-                    <td className="px-3 py-2">{r.error_accum}</td>
+                    <td className="px-3 py-2">{r.difference_pretty ?? r.difference}</td>
+                    <td className="px-3 py-2">{r.error_accum_pretty ?? r.error_accum}</td>
                   </tr>
                 ))}
               </tbody>
@@ -205,13 +257,18 @@ export function ErrorAcumuladoInputs({ onCalculate }: Props) {
           </div>
 
           {/* Summary */}
-          {result.data.summary && (
+          {summary && (
             <div className="mt-4 text-sm text-purple-100">
-              <div><strong>Iteraciones:</strong> {result.data.summary.iterations}</div>
-              <div><strong>Monto inicial:</strong> {result.data.summary.initial_amout_pretty ?? result.input?.initial_amount}</div>
-              <div><strong>Error acumulado final:</strong> {result.data.summary.final_error_accum_pretty}</div>
-              <div><strong>Rate:</strong> {result.data.summary.rate}</div>
-              <div><strong>Modo:</strong> {result.data.summary.mode}</div>
+              <div><strong>Iteraciones:</strong> {summary.iterations}</div>
+              <div><strong>Monto inicial:</strong> {summary.initial_amount_pretty ?? summary.initial_amout_pretty ?? result.input?.initial_amount}</div>
+              {summary.final_amount_real_pretty && <div><strong>Monto final real:</strong> {summary.final_amount_real_pretty}</div>}
+              {summary.final_amount_approx_pretty && <div><strong>Monto final {aprox}:</strong> {summary.final_amount_approx_pretty}</div>}
+              <div><strong>Error acumulado final:</strong> {summary.final_error_accum_pretty}</div>
+              <div><strong>Tasa por período:</strong> {summary.rate_percent ?? summary.rate}</div>
+              <div><strong>Aproximación:</strong> {summary.approx_operation_text ?? summary.mode} el interés de cada período</div>
+              <div className="mt-2 text-xs text-white/60">
+                Error acumulado = monto real − monto {aprox}. Incluye lo que cada aproximación quitó (o agregó) y el interés que esa diferencia dejó de generar (o generó de más) en los períodos siguientes. Los valores con ≈ están redondeados para mostrarse.
+              </div>
             </div>
           )}
         </div>

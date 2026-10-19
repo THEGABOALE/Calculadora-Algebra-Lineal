@@ -1,4 +1,6 @@
 """
+CÁLCULO DE ERRORES: absoluto y relativo (issue #9) y acumulado (issue #8).
+
 ERROR ABSOLUTO Y RELATIVO
 
     Ea = |m - m~|                      (error absoluto)
@@ -22,14 +24,60 @@ un valor que se muestra redondeado lleva "≈"; uno que se muestra exacto, no.
 Y un error distinto de cero nunca se muestra como 0: si con `decimales`
 quedaría en 0, se muestra en notación científica.
 
+ERROR ACUMULADO (interés compuesto)
+
+Dos trayectorias desde el mismo monto inicial P, con tasa r por período
+expresada como fracción decimal (0.05 = 5 %):
+
+    real:        I_k = r·R_{k-1}        R_k = R_{k-1} + I_k     (= P(1+r)^k, exacto)
+    aproximada:  Ĩ_k = q(r·A_{k-1})     A_k = A_{k-1} + Ĩ_k     (R_0 = A_0 = P)
+
+q es la operación que se estudia, aplicada al INTERÉS de cada período antes
+de sumarlo al saldo (como un banco que acredita intereses en centavos):
+"trunc" trunca hacia cero (ROUND_DOWN: -1.25 -> -1.2, no -1.3) y "round"
+redondea mitad hacia arriba, lejos de cero (ROUND_HALF_UP: 1.25 -> 1.3,
+-1.25 -> -1.3), a `decimales_aproximacion` decimales. La trayectoria
+aproximada se alimenta de su propio saldo anterior A_{k-1}, nunca se
+recalcula desde P; la real no tiene ninguna aproximación intermedia.
+
+Por iteración:
+
+    diferencia_k      = I_k - Ĩ_k      cuánto crece la brecha en ESTE período
+    error_acumulado_k = R_k - A_k      error TOTAL hasta ahora = Σ diferencia_j
+
+y la diferencia se descompone en
+
+    error_local_k     = r·A_{k-1} - Ĩ_k    lo que q quitó (o agregó) en este período
+    error_propagado_k = r·E_{k-1}          interés que no generó el error anterior
+
+así que E_k = (1+r)·E_{k-1} + error_local_k: el error acumulado no es sólo
+la suma de los redondeos, porque cada centavo perdido deja de ganar interés
+en los períodos siguientes. (La implementación del repositorio de referencia
+calculaba el "monto real" de cada fila sobre el saldo ya aproximado, así que
+su error acumulado sólo sumaba los errores locales y omitía esa propagación.)
+
+Todo se calcula en Decimal exacto (salvo la operación q, que es el redondeo
+que se estudia); los límites de entrada aseguran que la precisión del
+contexto alcanza, y un trap de Inexact lo verifica en vez de suponerlo.
+
 Sin dependencias: sólo la biblioteca estándar (el CLI no paga sympy por
 importar este módulo).
 """
 
 from __future__ import annotations
 
-from decimal import ROUND_HALF_UP, Context, Decimal, InvalidOperation
-from typing import Any, Dict, Optional, Tuple, Union
+from decimal import (
+    ROUND_DOWN,
+    ROUND_HALF_UP,
+    Context,
+    Decimal,
+    DecimalException,
+    DivisionByZero,
+    Inexact,
+    InvalidOperation,
+    Overflow,
+)
+from typing import Any, Dict, List, Optional, Tuple, Union
 
 DECIMALES_POR_DEFECTO = 6
 DECIMALES_MAXIMOS = 15
@@ -199,10 +247,182 @@ def calcular_error_absoluto_relativo(
     }
 
 
+# ---------------------------------------------------------------------------
+# Error acumulado
+# ---------------------------------------------------------------------------
+
+MODOS_APROXIMACION: Dict[str, Any] = {"trunc": ROUND_DOWN, "round": ROUND_HALF_UP}
+_TEXTO_MODO = {"trunc": "truncar", "round": "redondear"}
+
+ITERACIONES_MAXIMAS = 50
+DECIMALES_APROXIMACION_MAXIMOS = 10
+DECIMALES_PRESENTACION_POR_DEFECTO = 4
+MONTO_MAXIMO = Decimal("1e15")
+TASA_MAXIMA = Decimal(1)  # 100 % por período
+DECIMALES_ENTRADA_MAXIMOS = 10
+
+# Con los límites de arriba R_k tiene a lo sumo ~26 + 50·11 cifras: 2000 de
+# precisión sobra, y el trap de Inexact garantiza que ninguna operación de
+# las trayectorias redondeó (si pasara, se reporta como ValueError).
+_ACUMULADO = Context(prec=2000, rounding=ROUND_HALF_UP,
+                     traps=[Inexact, InvalidOperation, Overflow, DivisionByZero])
+# q sí descarta cifras (es lo que se estudia): sin trap de Inexact.
+_APROXIMAR = Context(prec=2000, rounding=ROUND_HALF_UP,
+                     traps=[InvalidOperation, Overflow, DivisionByZero])
+
+
+def _cifras_decimales(valor: Decimal) -> int:
+    exponente = valor.normalize(_APROXIMAR).as_tuple().exponent
+    return max(0, -exponente)
+
+
+def leer_monto(texto: Numero) -> Decimal:
+    valor = leer_decimal(texto, "monto inicial")
+    if valor.copy_abs() > MONTO_MAXIMO:
+        raise ValueError("El monto inicial no puede superar 1e15 en valor absoluto.")
+    if _cifras_decimales(valor) > DECIMALES_ENTRADA_MAXIMOS:
+        raise ValueError(f"El monto inicial admite a lo sumo {DECIMALES_ENTRADA_MAXIMOS} decimales.")
+    return valor
+
+
+def leer_tasa(texto: Numero) -> Decimal:
+    valor = leer_decimal(texto, "valor de la tasa")
+    if not 0 <= valor <= TASA_MAXIMA:
+        raise ValueError(
+            "La tasa se escribe como fracción decimal por período (0.05 = 5 %) "
+            "y debe estar entre 0 y 1."
+        )
+    if _cifras_decimales(valor) > DECIMALES_ENTRADA_MAXIMOS:
+        raise ValueError(f"La tasa admite a lo sumo {DECIMALES_ENTRADA_MAXIMOS} decimales.")
+    return valor
+
+
+def _validar_entero(valor: int, minimo: int, maximo: int, descripcion: str) -> None:
+    if isinstance(valor, bool) or not isinstance(valor, int):
+        raise ValueError(f"{descripcion} debe ser un número entero.")
+    if not minimo <= valor <= maximo:
+        raise ValueError(f"{descripcion} debe estar entre {minimo} y {maximo}.")
+
+
+def aproximar(valor: Decimal, decimales: int, modo: str) -> Decimal:
+    """q: trunca hacia cero ("trunc") o redondea mitad-arriba ("round")."""
+    if modo not in MODOS_APROXIMACION:
+        raise ValueError(f"Modo desconocido: {modo!r}. Los admitidos son: trunc, round.")
+    cuanto = Decimal(1).scaleb(-decimales, context=_APROXIMAR)
+    return valor.quantize(cuanto, rounding=MODOS_APROXIMACION[modo], context=_APROXIMAR)
+
+
+def texto_operacion(modo: str, decimales: int) -> str:
+    return f"{_TEXTO_MODO[modo]} a {decimales} decimal{'es' if decimales != 1 else ''}"
+
+
+def calcular_error_acumulado(
+    monto_inicial: Numero,
+    tasa: Numero,
+    iteraciones: int,
+    modo: str = "trunc",
+    decimales_aproximacion: int = 2,
+) -> Dict[str, Any]:
+    """Tabla de las dos trayectorias (ver el docstring del módulo).
+
+    Devuelve {"monto_inicial", "tasa", "iteraciones", "modo",
+    "decimales_aproximacion", "filas", "resumen"}; cada fila tiene, en
+    Decimal exacto: iteracion, monto_anterior_real, monto_anterior_aprox,
+    interes_real, interes_aprox, monto_real, monto_aprox, diferencia,
+    error_local, error_propagado, error_acumulado.
+
+    Levanta ValueError con un mensaje para el usuario si alguna entrada está
+    fuera del dominio admitido.
+    """
+    if modo not in MODOS_APROXIMACION:
+        raise ValueError(f"Modo desconocido: {modo!r}. Los admitidos son: trunc, round.")
+    _validar_entero(iteraciones, 1, ITERACIONES_MAXIMAS, "La cantidad de iteraciones")
+    _validar_entero(decimales_aproximacion, 0, DECIMALES_APROXIMACION_MAXIMOS,
+                    "La cantidad de decimales de la aproximación")
+    P = leer_monto(monto_inicial)
+    r = leer_tasa(tasa)
+
+    c = _ACUMULADO
+    real = aprox = P
+    error = Decimal(0)
+    filas: List[Dict[str, Any]] = []
+    try:
+        for k in range(1, iteraciones + 1):
+            interes_real = c.multiply(r, real)
+            base_aprox = c.multiply(r, aprox)
+            interes_aprox = aproximar(base_aprox, decimales_aproximacion, modo)
+            nuevo_real = c.add(real, interes_real)
+            nuevo_aprox = c.add(aprox, interes_aprox)
+            nuevo_error = c.subtract(nuevo_real, nuevo_aprox)
+            filas.append({
+                "iteracion": k,
+                "monto_anterior_real": real,
+                "monto_anterior_aprox": aprox,
+                "interes_real": interes_real,
+                "interes_aprox": interes_aprox,
+                "monto_real": nuevo_real,
+                "monto_aprox": nuevo_aprox,
+                "diferencia": c.subtract(interes_real, interes_aprox),
+                "error_local": c.subtract(base_aprox, interes_aprox),
+                "error_propagado": c.multiply(r, error),
+                "error_acumulado": nuevo_error,
+            })
+            real, aprox, error = nuevo_real, nuevo_aprox, nuevo_error
+    except DecimalException as exc:  # no debería ocurrir con los límites de entrada
+        raise ValueError(f"El cálculo excede la precisión admitida: {exc!r}") from None
+
+    return {
+        "monto_inicial": P,
+        "tasa": r,
+        "iteraciones": iteraciones,
+        "modo": modo,
+        "decimales_aproximacion": decimales_aproximacion,
+        "filas": filas,
+        "resumen": {
+            "monto_final_real": real,
+            "monto_final_aprox": aprox,
+            "error_acumulado_final": error,
+        },
+    }
+
+
+def texto_fijo(valor: Decimal, decimales: int) -> str:
+    """Valor exacto con `decimales` decimales si los tiene; si no, completo.
+
+    Para la trayectoria aproximada, que ya está redondeada: nunca agrega "≈"
+    porque nunca redondea al mostrar.
+    """
+    if valor == 0:
+        valor = valor.copy_abs()  # sin "-0.00"
+    cuanto = Decimal(1).scaleb(-decimales, context=_APROXIMAR)
+    fijo = valor.quantize(cuanto, context=_APROXIMAR)
+    if fijo == valor:
+        return format(fijo, "f")
+    return texto_exacto(valor)
+
+
+def texto_compacto(valor: Decimal) -> str:
+    """Valor exacto sin ceros a la derecha (0.0010 -> 0.001)."""
+    if valor == 0:
+        return "0"
+    return texto_exacto(valor.normalize(_APROXIMAR))
+
+
 __all__ = [
     "DECIMALES_POR_DEFECTO",
     "DECIMALES_MAXIMOS",
+    "DECIMALES_APROXIMACION_MAXIMOS",
+    "DECIMALES_PRESENTACION_POR_DEFECTO",
+    "ITERACIONES_MAXIMAS",
+    "MODOS_APROXIMACION",
+    "aproximar",
     "calcular_error_absoluto_relativo",
+    "calcular_error_acumulado",
+    "leer_monto",
+    "leer_tasa",
+    "texto_compacto",
+    "texto_fijo",
+    "texto_operacion",
     "leer_decimal",
     "texto_exacto",
     "texto_redondeado",

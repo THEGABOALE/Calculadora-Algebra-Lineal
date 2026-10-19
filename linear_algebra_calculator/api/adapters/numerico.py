@@ -44,7 +44,15 @@ from __future__ import annotations
 import math
 from typing import Any, Dict, List, Optional
 
-from core.numeric.errores import calcular_error_absoluto_relativo, texto_exacto
+from core.numeric.errores import (
+    calcular_error_absoluto_relativo,
+    calcular_error_acumulado,
+    texto_compacto,
+    texto_exacto,
+    texto_fijo,
+    texto_operacion,
+    texto_redondeado,
+)
 from core.numeric.metodos_abiertos import metodo_newton_raphson, metodo_secante
 from core.numeric.metodos_cerrados import metodo_biseccion, metodo_regla_falsa
 
@@ -217,5 +225,96 @@ def abs_rel_error(*, true_value: str, approx_value: str, decimals_display: int) 
             "percent": er["porcentaje"],
             "defined": er["valor"] is not None,
             "note": er["nota"],
+        },
+    }
+
+
+def error_accumulation(
+    *,
+    initial_amount: str,
+    iterations: int,
+    mode: str,
+    rate: str,
+    approx_decimals: int,
+    interest_display_decimals: int,
+) -> Dict[str, Any]:
+    """numeric/error-accumulation -- core/numeric/errores.calcular_error_acumulado.
+
+    Tres tipos de valor, con nombres distintos para no confundirlos:
+    - `*_pretty` de la trayectoria aproximada: el valor exacto con
+      approx_decimals decimales (ya está redondeado; mostrarlo no redondea).
+    - `*_pretty` de la trayectoria real, diferencias y errores: redondeados a
+      interest_display_decimals, con "≈" si no son el valor exacto.
+    - `difference`, `error_accum`, `amount_real`, `local_error`,
+      `propagated_error`: el valor exacto como texto decimal. Antes eran
+      números en el frontend; con float se perdería justamente la precisión
+      que se mide.
+
+    `prev_amount_pretty` es el saldo aproximado anterior (al que se aplica la
+    operación); el real anterior va en `prev_amount_real_pretty`.
+    `summary.initial_amout_pretty` (sic) se conserva como alias de
+    `initial_amount_pretty` para el frontend existente.
+    """
+    r = calcular_error_acumulado(initial_amount, rate, iterations, mode, approx_decimals)
+    da, dp = approx_decimals, interest_display_decimals
+    operacion = texto_operacion(mode, da)
+
+    def aprox(v):
+        return texto_fijo(v, da)
+
+    def real(v):
+        return texto_redondeado(v, dp)
+
+    filas = []
+    for f in r["filas"]:
+        filas.append({
+            "iteration": f["iteracion"],
+            "prev_amount_pretty": aprox(f["monto_anterior_aprox"]),
+            "prev_amount_approx_pretty": aprox(f["monto_anterior_aprox"]),
+            "prev_amount_real_pretty": real(f["monto_anterior_real"]),
+            "interest_real_pretty": real(f["interes_real"]),
+            "interest_approx_pretty": aprox(f["interes_aprox"]),
+            "amount_real_pretty": real(f["monto_real"]),
+            "amount_real": texto_compacto(f["monto_real"]),
+            "amount_approx_pretty": aprox(f["monto_aprox"]),
+            "difference": texto_compacto(f["diferencia"]),
+            "difference_pretty": real(f["diferencia"]),
+            "local_error": texto_compacto(f["error_local"]),
+            "local_error_pretty": real(f["error_local"]),
+            "propagated_error": texto_compacto(f["error_propagado"]),
+            "propagated_error_pretty": real(f["error_propagado"]),
+            "error_accum": texto_compacto(f["error_acumulado"]),
+            "error_accum_pretty": real(f["error_acumulado"]),
+            "approx_mode": mode,
+            "approx_operation_text": operacion,
+        })
+
+    resumen = r["resumen"]
+    monto_inicial = texto_compacto(r["monto_inicial"])
+    tasa = texto_compacto(r["tasa"])
+    return {
+        "input": {
+            "initial_amount": monto_inicial,
+            "iterations": iterations,
+            "mode": mode,
+            "rate": tasa,
+            "approx_decimals": da,
+            "interest_display_decimals": dp,
+        },
+        "data": {
+            "rows": filas,
+            "summary": {
+                "iterations": iterations,
+                "initial_amount_pretty": monto_inicial,
+                "initial_amout_pretty": monto_inicial,
+                "final_amount_real_pretty": real(resumen["monto_final_real"]),
+                "final_amount_approx_pretty": aprox(resumen["monto_final_aprox"]),
+                "final_error_accum": texto_compacto(resumen["error_acumulado_final"]),
+                "final_error_accum_pretty": real(resumen["error_acumulado_final"]),
+                "rate": tasa,
+                "rate_percent": f"{texto_compacto(r['tasa'] * 100)} %",
+                "mode": mode,
+                "approx_operation_text": operacion,
+            },
         },
     }

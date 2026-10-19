@@ -7,6 +7,7 @@ from api.adapters.matrices import matrix_operate
 from api.adapters.numerico import (
     abs_rel_error,
     bisection_method,
+    error_accumulation,
     false_position_method,
     newton_raphson_method,
     secant_method,
@@ -17,6 +18,7 @@ from api.adapters.vectores import linear_combination, vector_operate
 from api.serializers import (
     AbsRelErrorSerializer,
     BisectionSerializer,
+    ErrorAccumulationSerializer,
     FalsePositionSerializer,
     MatrixDeterminantSerializer,
     MatrixOperateSerializer,
@@ -330,6 +332,36 @@ class AbsRelErrorView(APIView):
         except ValueError as exc:
             return Response(
                 {"error": {"code": "ABS_REL_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class ErrorAccumulationView(APIView):
+    """POST /api/v1/numeric/error-accumulation -- core/numeric/errores.py."""
+
+    def post(self, request):
+        serializer = ErrorAccumulationSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": serializer.errors}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            result = error_accumulation(
+                initial_amount=data["initial_amount"],
+                iterations=data["iterations"],
+                mode=data["mode"],
+                rate=data["rate"],
+                approx_decimals=data["approx_decimals"],
+                interest_display_decimals=data["interest_display_decimals"],
+            )
+        except ValueError as exc:
+            return Response(
+                {"error": {"code": "ERROR_ACCUMULATION_ERROR", "message": str(exc)}},
                 status=status.HTTP_400_BAD_REQUEST,
             )
 
