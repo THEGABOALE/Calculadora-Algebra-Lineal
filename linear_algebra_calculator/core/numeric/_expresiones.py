@@ -91,7 +91,7 @@ def _diccionario_local(modo_angular: str = "rad") -> Dict[str, Any]:
     }
 
 
-def parsear(f_str: str, modo_angular: str = "rad"):
+def parsear(f_str: str, modo_angular: str = "rad", variable: str = "x"):
     """Devuelve `(expr, x)` a partir del texto de la funcion.
 
     Levanta ValueError si el texto no parsea o si usa una variable distinta de
@@ -100,25 +100,29 @@ def parsear(f_str: str, modo_angular: str = "rad"):
 
     `modo_angular` ("rad" o "deg") fija la unidad de los argumentos de
     sin/cos/tan; ver _diccionario_local.
+
+    `variable` es la única letra admitida en la expresión. Los métodos
+    numéricos usan siempre el default "x"; sólo el cálculo simbólico
+    (core/calculo.py) la elige, y la valida antes con validar_variable.
     """
     from sympy import Symbol
     from sympy.parsing.sympy_parser import parse_expr
 
     validar_modo_angular(modo_angular)
-    x = Symbol("x")
+    x = Symbol(variable)
     texto = normalizar(f_str)
 
     try:
         expr = parse_expr(texto, local_dict=_diccionario_local(modo_angular), evaluate=True)
     except Exception as exc:
-        raise ValueError(f"No se pudo interpretar la funcion f(x) = {f_str}: {exc}") from exc
+        raise ValueError(f"No se pudo interpretar la funcion f({variable}) = {f_str}: {exc}") from exc
 
     libres = {s.name for s in expr.free_symbols}
-    if libres - {"x"}:
-        ajenas = ", ".join(sorted(libres - {"x"}))
+    if libres - {variable}:
+        ajenas = ", ".join(sorted(libres - {variable}))
         raise ValueError(
-            f"La funcion f(x) = {f_str} usa variables no soportadas: {ajenas}. "
-            "La unica variable permitida es x."
+            f"La funcion f({variable}) = {f_str} usa variables no soportadas: {ajenas}. "
+            f"La unica variable permitida es {variable}."
         )
 
     # sympy no falla ante un nombre de funcion desconocido: `sen(x)` parsea
@@ -134,7 +138,7 @@ def parsear(f_str: str, modo_angular: str = "rad"):
         nombres = ", ".join(indefinidas)
         soportadas = ", ".join(FUNCIONES_SOPORTADAS)
         raise ValueError(
-            f"La funcion f(x) = {f_str} usa funciones desconocidas: {nombres}. "
+            f"La funcion f({variable}) = {f_str} usa funciones desconocidas: {nombres}. "
             f"Las soportadas son: {soportadas}."
         )
 

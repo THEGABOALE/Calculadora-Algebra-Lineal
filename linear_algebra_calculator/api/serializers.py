@@ -15,6 +15,7 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
+from core.calculo import LARGO_MAXIMO, validar_variable
 from core.numeric.errores import (
     DECIMALES_APROXIMACION_MAXIMOS,
     DECIMALES_MAXIMOS,
@@ -471,3 +472,37 @@ class ErrorAccumulationSerializer(serializers.Serializer):
 
     def validate_rate(self, valor):
         return self._leer(leer_tasa, valor)
+
+
+# ---------------------------------------------------------------------------
+# Cálculo simbólico.
+# ---------------------------------------------------------------------------
+
+class DerivativeSerializer(serializers.Serializer):
+    function_latex = serializers.CharField(
+        max_length=LARGO_MAXIMO,
+        error_messages={
+            "required": "Falta la función a derivar (function_latex).",
+            "blank": "Ingresá la función a derivar.",
+            "null": "Ingresá la función a derivar.",
+            "invalid": "La función debe enviarse como texto LaTeX.",
+            "max_length": f"La expresión es demasiado larga (máximo {LARGO_MAXIMO} caracteres).",
+        },
+    )
+    # Antes el frontend mostraba este campo pero no lo enviaba. Omitido = x.
+    variable = serializers.CharField(
+        required=False,
+        default="x",
+        error_messages={
+            "blank": "Indicá la variable de derivación (por ejemplo x o t).",
+            "null": "Indicá la variable de derivación (por ejemplo x o t).",
+            "invalid": "La variable de derivación debe ser una letra.",
+        },
+    )
+
+    def validate_variable(self, valor):
+        try:
+            validar_variable(valor)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        return valor

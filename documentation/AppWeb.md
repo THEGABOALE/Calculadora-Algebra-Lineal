@@ -78,6 +78,7 @@ sin esa validación.
 | `POST /api/v1/numeric/secant` | `adapters/numerico.py` + `adapters/latex.py` | `core/numeric/metodos_abiertos.py` |
 | `POST /api/v1/numeric/abs-rel-error` | `adapters/numerico.py` | `core/numeric/errores.py` (error absoluto y relativo con `decimal.Decimal`) |
 | `POST /api/v1/numeric/error-accumulation` | `adapters/numerico.py` | `core/numeric/errores.py` (error acumulado en interés compuesto con `decimal.Decimal`) |
+| `POST /api/v1/calculus/derivate` | `adapters/calculo.py` + `adapters/latex.py` | `core/calculo.py` (derivada simbólica; ver [`CalculoSimbolico.md`](CalculoSimbolico.md)) |
 
 Los cuatro métodos numéricos reciben la función en LaTeX
 (`function_latex`); `adapters/latex.py` la traduce a texto plano para
@@ -147,19 +148,19 @@ Lo que sigue quedó **fuera de alcance a propósito**, con evidencia concreta en
 
 ### 7.1. Funciones de `frontend/src/api/client.ts` sin endpoint
 
-Eran cinco; `errorAbsRel` (issue #9) y `errorAcumulado` (issue #8) ya tienen endpoint (sección 3). `errorPropagation`, `derivativeMethod` e `integralMethod` siguen llamando a rutas que **no existen** en `api/urls.py`:
+Eran cinco; `errorAbsRel` (issue #9), `errorAcumulado` (issue #8) y `derivativeMethod` (issue #10) ya tienen endpoint (sección 3). `errorPropagation` e `integralMethod` siguen llamando a rutas que **no existen** en `api/urls.py`:
 
 | Función | Ruta que llama | ¿Existe en `api/urls.py`? |
 |---|---|---|
 | `errorAcumulado` | `POST api/v1/numeric/error-accumulation` | Sí (issue #8) |
 | `errorAbsRel` | `POST api/v1/numeric/abs-rel-error` | Sí (issue #9) |
 | `errorPropagation` | `POST api/v1/numeric/propagation-error` | No |
-| `derivativeMethod` | `POST api/v1/calculus/derivate` | No |
+| `derivativeMethod` | `POST api/v1/calculus/derivate` | Sí (issue #10) |
 | `integralMethod` | `POST api/v1/calculus/integral` | No |
 
-Los cinco componentes se portaron **tal cual** en la Fase 6 (junto con el resto de `frontend/`), sin endpoint porque no había una función equivalente en `core/`. El error absoluto/relativo y el error acumulado ya se implementaron en `core/numeric/errores.py` (issues #9 y #8). Para los tres restantes sigue sin haber motor: no hay propagación de error, derivadas ni integrales simbólicas independientes en `core/` (Newton-Raphson deriva internamente con `sympy.diff`, pero no hay un endpoint que exponga "derivar esta expresión" como operación propia). Conectarlos pide escribir la función en `core/` primero: no es trabajo de adaptador, es motor nuevo.
+Los cinco componentes se portaron **tal cual** en la Fase 6 (junto con el resto de `frontend/`), sin endpoint porque no había una función equivalente en `core/`. El error absoluto/relativo y el error acumulado ya se implementaron en `core/numeric/errores.py` (issues #9 y #8), y la derivada simbólica en `core/calculo.py` (issue #10). Para los dos restantes sigue sin haber motor: no hay propagación de error ni integrales simbólicas en `core/`. Conectarlos pide escribir la función en `core/` primero: no es trabajo de adaptador, es motor nuevo.
 
-Si se llaman hoy, esos tres fallan con un 404 de Django (ninguna vista responde en esa ruta), no con un error de la API.
+Si se llaman hoy, esos dos fallan con un 404 de Django (ninguna vista responde en esa ruta), no con un error de la API.
 
 ### 7.2. `verify_transpose_props` / `verify_inverse_props`
 

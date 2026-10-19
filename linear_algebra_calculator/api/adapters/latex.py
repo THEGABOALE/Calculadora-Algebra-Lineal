@@ -18,7 +18,7 @@ dentro de la función, mismo criterio que sympy en core/numeric/_expresiones.py.
 from __future__ import annotations
 
 
-def latex_a_texto(latex: str) -> str:
+def latex_a_texto(latex: str, estricto: bool = False) -> str:
     """Convierte una expresión LaTeX a texto que core/numeric puede parsear.
 
     parse_latex ya devuelve un Expr de sympy; se lo vuelve a convertir a
@@ -27,6 +27,12 @@ def latex_a_texto(latex: str) -> str:
     espera (compilar()/parsear() lo vuelven a parsear con parse_expr). No se
     le pasa el Expr directo: así el mismo camino (texto plano) sirve para
     CLI y web, y core/ no necesita saber que este módulo existe.
+
+    `estricto=True` usa el modo estricto de parse_latex: el modo por defecto
+    "recupera" entradas truncadas en silencio ("x^{" o "x+" se leen como
+    "x"). En entradas válidas los dos modos dan lo mismo. Los métodos
+    numéricos siguen con el default; el cálculo simbólico (calculus/*) usa el
+    estricto para no derivar una función distinta de la escrita.
     """
     from sympy.parsing.latex import parse_latex
 
@@ -39,7 +45,7 @@ def latex_a_texto(latex: str) -> str:
         raise ValueError("La expresión LaTeX está vacía.")
 
     try:
-        expr = parse_latex(texto)
+        expr = parse_latex(texto, strict=estricto)
     except Exception as exc:
         raise ValueError(f"No se pudo interpretar la expresión LaTeX {latex!r}: {exc}") from exc
 
