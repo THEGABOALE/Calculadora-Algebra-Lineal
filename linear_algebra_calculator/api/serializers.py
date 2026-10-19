@@ -15,7 +15,16 @@ from __future__ import annotations
 
 from rest_framework import serializers
 
-from core.numeric.errores import DECIMALES_MAXIMOS, DECIMALES_POR_DEFECTO, leer_decimal
+from core.numeric.errores import (
+    DECIMALES_APROXIMACION_MAXIMOS,
+    DECIMALES_MAXIMOS,
+    DECIMALES_POR_DEFECTO,
+    DECIMALES_PRESENTACION_POR_DEFECTO,
+    ITERACIONES_MAXIMAS,
+    leer_decimal,
+    leer_monto,
+    leer_tasa,
+)
 
 
 class MatrixOperateSerializer(serializers.Serializer):
@@ -406,3 +415,59 @@ class AbsRelErrorSerializer(serializers.Serializer):
 
     def validate_approx_value(self, valor):
         return self._leer(valor, "valor aproximado")
+
+
+def _entero(descripcion: str, minimo: int, maximo: int, **kwargs) -> serializers.IntegerField:
+    mensaje = f"{descripcion} debe ser un número entero entre {minimo} y {maximo}."
+    return serializers.IntegerField(
+        min_value=minimo,
+        max_value=maximo,
+        error_messages={
+            "required": f"Falta {descripcion[0].lower()}{descripcion[1:]}.",
+            "invalid": mensaje,
+            "null": mensaje,
+            "min_value": mensaje,
+            "max_value": mensaje,
+        },
+        **kwargs,
+    )
+
+
+class ErrorAccumulationSerializer(serializers.Serializer):
+    # Mismo criterio que AbsRelErrorSerializer: los números llegan como texto
+    # y se validan con los lectores de core/numeric/errores.py. Ningún campo
+    # del cálculo tiene default -- un campo vacío es un error, no un 0 --; el
+    # único opcional es interest_display_decimals, que sólo afecta la
+    # presentación.
+    initial_amount = _valor_numerico("monto inicial")
+    rate = _valor_numerico("valor de la tasa")
+    iterations = _entero("La cantidad de iteraciones", 1, ITERACIONES_MAXIMAS)
+    mode = serializers.ChoiceField(
+        choices=["trunc", "round"],
+        error_messages={
+            "required": "Falta el modo (trunc o round).",
+            "invalid_choice": "El modo debe ser 'trunc' (truncar) o 'round' (redondear).",
+            "null": "El modo debe ser 'trunc' (truncar) o 'round' (redondear).",
+        },
+    )
+    approx_decimals = _entero(
+        "La cantidad de decimales de la aproximación", 0, DECIMALES_APROXIMACION_MAXIMOS
+    )
+    interest_display_decimals = _entero(
+        "La cantidad de decimales de presentación", 0, DECIMALES_MAXIMOS,
+        required=False, default=DECIMALES_PRESENTACION_POR_DEFECTO,
+    )
+
+    @staticmethod
+    def _leer(lector, valor):
+        try:
+            lector(valor)
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        return valor
+
+    def validate_initial_amount(self, valor):
+        return self._leer(leer_monto, valor)
+
+    def validate_rate(self, valor):
+        return self._leer(leer_tasa, valor)
