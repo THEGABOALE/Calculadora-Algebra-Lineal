@@ -273,6 +273,41 @@ class TestErrores(_Base):
         self.assertValidacion(r'\sqrt{x}', '0', '0.25', fragmento='deriva')
         self.assertValidacion(r'\left|x\right|', '0', '0.1', fragmento='deriva')
 
+    def test_derivable_aunque_la_derivada_tenga_sign(self):
+        # Revisión de Codex (PR #31): f = x|x| es derivable en 0 con f'(0) = 0,
+        # aunque la derivada simbólica contenga x·sign(x). Sólo se rechaza
+        # cuando las derivadas laterales no coinciden.
+        data = self.post(r'x\left|x\right|', '0', '0.1')
+        self.assertEqual(data['values']['derivative_at_x0'], '0')
+        self.assertEqual(data['values']['delta_y_real'], '0.01')
+        self.assertEqual(data['values']['absolute_error'], '0.01')
+        self.assertValidacion(r'\left|x-1\right|', '1', '0.1', fragmento='deriva')
+
+    def test_numeros_enormes_se_rechazan_antes_de_evaluarse(self):
+        # Revisión de Codex (PR #31): 2^{1000000000} construiría un entero de
+        # mil millones de bits al parsear. Se rechaza sobre el árbol sin
+        # evaluar, sin gastar CPU ni memoria.
+        import time
+        casos = [
+            (r'x^{2}', r'2^{1000000000}', '0.1'),
+            (r'x+2^{1000000000}', '1', '0.1'),
+            (r'x^{2}', '1', r'10^{10^{10}}'),
+            (r'x^{2}', r'1000000!', '0.1'),
+            (r'x^{10^{9}}', '2', '0.1'),
+        ]
+        for caso in casos:
+            with self.subTest(caso=caso):
+                inicio = time.perf_counter()
+                self.assertValidacion(*caso)
+                self.assertLess(time.perf_counter() - inicio, 2.0)
+        # Lo mismo protege a calculus/derivate, que usa el mismo traductor.
+        inicio = time.perf_counter()
+        r = self.client.post('/api/v1/calculus/derivate', {'function_latex': r'x+2^{1000000000}'}, format='json')
+        self.assertEqual(r.status_code, 400)
+        self.assertLess(time.perf_counter() - inicio, 2.0)
+        # Potencias razonables siguen funcionando.
+        self.post(r'x^{1000}', '1', '0.001')
+
     def test_valores_no_finitos_o_complejos(self):
         self.assertValidacion(r'x^{2}', r'\infty', '0.1')
         self.assertValidacion(r'x^{2}', r'\sqrt{-1}', '0.1')

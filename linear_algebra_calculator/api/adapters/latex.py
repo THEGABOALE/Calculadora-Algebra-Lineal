@@ -20,6 +20,35 @@ from __future__ import annotations
 import re
 
 
+# Tope para exponentes y factoriales numéricos. 2^{1000000000} o 1000000!
+# construirían enteros gigantes al reparsear el texto con evaluate=True
+# (core/numeric/_expresiones.parsear): se rechazan sobre el árbol que deja
+# parse_latex, que todavía no evaluó nada.
+NUMERO_MAXIMO_EN_EXPONENTE = 1000
+
+
+def _rechazar_numeros_enormes(expr) -> None:
+    from sympy import Pow, factorial
+
+    for nodo in expr.atoms(Pow, factorial):
+        argumento = nodo.exp if isinstance(nodo, Pow) else nodo.args[0]
+        if not argumento.is_number:
+            continue
+        try:
+            # evalf sobre el árbol sin evaluar: punto flotante de mpmath,
+            # barato aunque el exponente sea 10^10.
+            magnitud = abs(argumento.evalf(15))
+            demasiado = bool(magnitud > NUMERO_MAXIMO_EN_EXPONENTE)
+        except Exception:
+            demasiado = True
+        if demasiado:
+            que = "un exponente" if isinstance(nodo, Pow) else "un factorial"
+            raise ValueError(
+                f"La expresión tiene {que} demasiado grande "
+                f"(máximo {NUMERO_MAXIMO_EN_EXPONENTE} en valor absoluto)."
+            )
+
+
 _ESPACIADO = re.compile(r"\\(?:qquad|quad)(?![A-Za-z])|\\[ ,;:!]|~")
 
 
@@ -58,6 +87,7 @@ def latex_a_texto(latex: str, estricto: bool = False) -> str:
     except Exception as exc:
         raise ValueError(f"No se pudo interpretar la expresión LaTeX {latex!r}: {exc}") from exc
 
+    _rechazar_numeros_enormes(expr)
     return str(expr)
 
 

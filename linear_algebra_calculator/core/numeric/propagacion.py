@@ -29,9 +29,9 @@ decimal finita se devuelven exactos (2.1² - 4 = 0.41). La presentación
 
 DOMINIO: f(x0), f(x0+Δx) y f'(x0) tienen que ser reales y finitos; si no
 (1/x en 0, ln de un negativo, √ de un negativo, f' infinita en x0) se
-rechaza con ValueError. Si la derivada contiene sign(g(x)) y g(x0) = 0 (|x|
-en 0), f no es derivable en x0: sympy diría sign(0) = 0, que no es una
-derivada.
+rechaza con ValueError. Si la derivada contiene sign(g(x)) y g(x0) = 0, se
+comparan las derivadas laterales: |x| en 0 no es derivable (-1 y 1), x|x|
+en 0 sí (0 y 0). sympy diría sign(0) = 0, que no es una derivada.
 
 LÍMITES: x0, Δx, f(x0), f(x0+Δx) y f'(x0) de magnitud ≤ 1e100, y
 exponentes numéricos de f de valor absoluto ≤ 1000 (x^{10^9} en x0 = 2
@@ -142,13 +142,30 @@ def _rechazar_exponentes_enormes(funcion) -> None:
             raise ValueError(f"La función tiene un exponente mayor que {EXPONENTE_MAXIMO} en valor absoluto.")
 
 
-def _no_derivable_en(derivada, x, x0) -> bool:
-    from sympy import sign
+def _derivada_en(derivada, x, x0):
+    """f'(x0), o ValueError si f no es derivable en x0.
 
-    for s in derivada.atoms(sign):
-        if s.args[0].subs(x, x0).evalf(PRECISION) == 0:
-            return True
-    return False
+    Sin términos sign(g) con g(x0) = 0, es la sustitución directa. Con
+    alguno (|x| en 0), sympy diría sign(0) = 0 sin que eso sea una derivada:
+    se comparan las derivadas laterales lim f'(x) por izquierda y derecha.
+    Si coinciden y son finitas, ése es f'(x0) (x|x| en 0 da 0); si no (|x|
+    en 0: -1 y 1), f no es derivable ahí.
+    """
+    from sympy import limit, sign, simplify
+
+    criticos = [s for s in derivada.atoms(sign)
+                if s.args[0].subs(x, x0).evalf(PRECISION) == 0]
+    if not criticos:
+        return derivada.subs(x, x0)
+    try:
+        izquierda = limit(derivada, x, x0, dir="-")
+        derecha = limit(derivada, x, x0, dir="+")
+    except Exception:
+        raise ValueError("No se pudo determinar si f es derivable en x₀.") from None
+    if (izquierda.is_finite and derecha.is_finite
+            and simplify(izquierda - derecha) == 0):
+        return derecha
+    raise ValueError("f no es derivable en x₀: las derivadas laterales no coinciden.")
 
 
 def propagar_error(
@@ -191,9 +208,7 @@ def propagar_error(
             f"f no está definida (como número real) en {donde}: el punto está fuera del dominio de la función.",
         )
 
-    derivada_en_x0 = derivada.subs(x, x0)
-    if _no_derivable_en(derivada, x, x0):
-        raise ValueError("f no es derivable en x₀ (la derivada cambia de valor a cada lado del punto).")
+    derivada_en_x0 = _derivada_en(derivada, x, x0)
     _exigir_real_finito(derivada_en_x0, "f'(x₀)", "f no es derivable en x₀: f'(x₀) no está definida.")
 
     delta_y_aprox = derivada_en_x0 * dx
