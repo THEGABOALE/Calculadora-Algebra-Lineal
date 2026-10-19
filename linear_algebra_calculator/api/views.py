@@ -11,6 +11,7 @@ from api.adapters.numerico import (
     error_accumulation,
     false_position_method,
     newton_raphson_method,
+    propagation_error,
     secant_method,
 )
 from api.adapters.properties import matrix_properties
@@ -27,6 +28,7 @@ from api.serializers import (
     MatrixPropertiesSerializer,
     MatrixReduceSerializer,
     NewtonRaphsonSerializer,
+    PropagationErrorSerializer,
     SecantSerializer,
     VectorCombinationSerializer,
     VectorOperateSerializer,
@@ -388,6 +390,39 @@ class DerivativeView(APIView):
         data = serializer.validated_data
         try:
             result = derivative(function_latex=data["function_latex"], variable=data["variable"])
+        except ValueError as exc:
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": str(exc)}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        return Response(result, status=status.HTTP_200_OK)
+
+
+class PropagationErrorView(APIView):
+    """POST /api/v1/numeric/propagation-error -- core/numeric/propagacion.py.
+
+    Toda falla es de la entrada (LaTeX inválido, x0/Δx no numéricos, punto
+    fuera del dominio, f no derivable en x0): 400 VALIDATION_ERROR.
+    """
+
+    def post(self, request):
+        serializer = PropagationErrorSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response(
+                {"error": {"code": "VALIDATION_ERROR", "message": serializer.errors}},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+
+        data = serializer.validated_data
+        try:
+            result = propagation_error(
+                function_latex=data["function_latex"],
+                x0=data["x0"],
+                delta_x=data["delta_x"],
+                angle_mode=data["angle_mode"],
+                decimals=data["decimals"],
+            )
         except ValueError as exc:
             return Response(
                 {"error": {"code": "VALIDATION_ERROR", "message": str(exc)}},

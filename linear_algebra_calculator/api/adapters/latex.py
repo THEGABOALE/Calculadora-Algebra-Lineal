@@ -17,6 +17,11 @@ dentro de la función, mismo criterio que sympy en core/numeric/_expresiones.py.
 
 from __future__ import annotations
 
+import re
+
+
+_ESPACIADO = re.compile(r"\\(?:qquad|quad)(?![A-Za-z])|\\[ ,;:!]|~")
+
 
 def latex_a_texto(latex: str, estricto: bool = False) -> str:
     """Convierte una expresión LaTeX a texto que core/numeric puede parsear.
@@ -40,6 +45,10 @@ def latex_a_texto(latex: str, estricto: bool = False) -> str:
     if texto.startswith("$") and texto.endswith("$"):
         texto = texto[1:-1].strip()
     texto = texto.replace(r"\left", "").replace(r"\right", "")
+    # Comandos de espaciado (\ , \, \; \: \! \quad \qquad, ~): MathQuill los
+    # inserta al escribir un espacio y no tienen significado matemático, pero
+    # el parser estricto no los entiende ("\sqrt{\ x}", "\pi\ \frac{1}{4}").
+    texto = _ESPACIADO.sub(" ", texto).strip()
 
     if not texto:
         raise ValueError("La expresión LaTeX está vacía.")

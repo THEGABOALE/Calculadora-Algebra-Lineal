@@ -54,6 +54,7 @@ from core.numeric.errores import (
     texto_redondeado,
 )
 from core.numeric.metodos_abiertos import metodo_newton_raphson, metodo_secante
+from core.numeric.propagacion import propagar_error, texto_preciso, texto_valor
 from core.numeric.metodos_cerrados import metodo_biseccion, metodo_regla_falsa
 
 from .latex import latex_a_texto
@@ -316,5 +317,157 @@ def error_accumulation(
                 "mode": mode,
                 "approx_operation_text": operacion,
             },
+        },
+    }
+
+
+def _tex_numero(texto: str) -> str:
+    """Texto de presentación -> LaTeX: "≈ 1.5E-7" -> "1.5 \times 10^{-7}"."""
+    t = texto[2:] if texto.startswith("≈ ") else texto
+    if "E" in t:
+        mantisa, exponente = t.split("E")
+        t = rf"{mantisa} \times 10^{{{int(exponente)}}}"
+    return t
+
+
+def _relacion(texto: str) -> str:
+    return r"\approx" if texto.startswith("≈") else "="
+
+
+def _entre_parentesis(tex: str) -> str:
+    return rf"\left({tex}\right)" if tex.startswith("-") else tex
+
+
+def _tex_valor_exacto(valor, par) -> str:
+    """Un dato de entrada (x0, Δx, x0+Δx): decimal si es exacto, si no LaTeX."""
+    from sympy import latex
+
+    decimal, exacto = par
+    return texto_compacto(decimal) if exacto else latex(valor)
+
+
+def propagation_error(
+    *,
+    function_latex: str,
+    x0: str,
+    delta_x: str,
+    angle_mode: str = "rad",
+    decimals: int = 6,
+) -> Dict[str, Any]:
+    """numeric/propagation-error -- core/numeric/propagacion.py.
+
+    function_latex, x0 y delta_x llegan como LaTeX de MathQuill y se
+    traducen con el parser estricto (el de calculus/derivate). Conserva las
+    claves que lee PropagationErrorInputs.tsx (input.*, steps.*.formula.*,
+    steps.*.result) y agrega: `values` (los números exactos o con 50 cifras,
+    como texto), `result` (los cuatro resultados formateados), los LaTeX
+    interpretados de x0/Δx y el modo angular. Las fórmulas de `steps` son
+    LaTeX para KaTeX; `result` y `steps.*.result` son texto formateado con
+    `decimals` decimales ("≈" si se redondea).
+    """
+    from sympy import latex
+
+    r = propagar_error(
+        latex_a_texto(function_latex, estricto=True),
+        latex_a_texto(x0, estricto=True),
+        latex_a_texto(delta_x, estricto=True),
+        modo_angular=angle_mode,
+        decimales=decimals,
+    )
+    v = r["valores"]
+
+    def txt(clave):
+        return texto_valor(v[clave], decimals)
+
+    x0_tex = _tex_valor_exacto(r["x0"], v["x0"])
+    dx_tex = _tex_valor_exacto(r["dx"], v["dx"])
+    x1_tex = _tex_valor_exacto(r["x0_mas_dx"], v["x0_mas_dx"])
+    grados = angle_mode == "deg"
+    unidad = r"^{\circ}" if grados else ""
+    nota = r"\quad (x\text{ en grados})" if grados else ""
+
+    d0, aprox, real, err = (txt(c) for c in ("derivada_en_x0", "delta_y_aprox", "delta_y_real", "error_absoluto"))
+    f0, f1 = txt("f_x0"), txt("f_x0_dx")
+    rel_f = r"\approx" if f0.startswith("≈") or f1.startswith("≈") else "="
+
+    # f'(x0) exacto sólo si es corto (π√3/360 sí; una expresión de 40 términos no).
+    from sympy import count_ops
+    exacto_d0 = ""
+    if not v["derivada_en_x0"][1] and count_ops(r["derivada_en_x0"]) <= 12:
+        exacto_d0 = f" = {latex(r['derivada_en_x0'])}"
+
+    steps = {
+        "derivative": {
+            "operation": {"expression": r"f'(x) = \frac{d}{dx} f(x)"},
+            "formula": {
+                "function": f"f(x) = {r['funcion_latex']}{nota}",
+                "derivative": f"f'(x) = {r['derivada_latex']}",
+                "evaluation": (
+                    f"f'({x0_tex}{unidad}){exacto_d0} {_relacion(d0)} {_tex_numero(d0)}"
+                ),
+            },
+            "result": d0,
+        },
+        "approx_delta_y": {
+            "operation": {"expression": r"\Delta y_{\text{aprox}} \approx f'(x_0)\,\Delta x"},
+            "formula": {
+                "expression": (
+                    rf"\Delta y_{{\text{{aprox}}}} \approx f'(x_0)\,\Delta x"
+                    rf" = {_entre_parentesis(_tex_numero(d0))} \cdot {_entre_parentesis(dx_tex)}"
+                    rf" {_relacion(aprox)} {_tex_numero(aprox)}"
+                ),
+            },
+            "result": aprox,
+        },
+        "exact_delta_y": {
+            "operation": {"expression": r"\Delta y_{\text{real}} = f(x_0 + \Delta x) - f(x_0)"},
+            "formula": {
+                "expression": (
+                    rf"\Delta y_{{\text{{real}}}} = f({x1_tex}{unidad}) - f({x0_tex}{unidad})"
+                    rf" {rel_f} {_tex_numero(f1)} - {_entre_parentesis(_tex_numero(f0))}"
+                    rf" {_relacion(real)} {_tex_numero(real)}"
+                ),
+            },
+            "result": real,
+        },
+        "absolute_error": {
+            "operation": {"expression": r"e_a = \left|\Delta y_{\text{real}} - \Delta y_{\text{aprox}}\right|"},
+            "formula": {
+                "numerator": (
+                    rf"e_a = \left|{_tex_numero(real)} - {_entre_parentesis(_tex_numero(aprox))}\right|"
+                    rf" {_relacion(err)} {_tex_numero(err)}"
+                ),
+            },
+            "result": err,
+        },
+    }
+
+    return {
+        "input": {
+            "function_latex": function_latex,
+            "x0": txt("x0"),
+            "delta_x": txt("dx"),
+            "x0_latex": x0_tex,
+            "delta_x_latex": dx_tex,
+            "function_interpreted_latex": r["funcion_latex"],
+            "angle_mode": angle_mode,
+            "decimals": decimals,
+        },
+        "steps": steps,
+        "result": {
+            "derivative_at_x0": d0,
+            "delta_y_approx": aprox,
+            "delta_y_real": real,
+            "absolute_error": err,
+        },
+        "values": {
+            "x0": texto_preciso(v["x0"]),
+            "delta_x": texto_preciso(v["dx"]),
+            "f_x0": texto_preciso(v["f_x0"]),
+            "f_x0_dx": texto_preciso(v["f_x0_dx"]),
+            "derivative_at_x0": texto_preciso(v["derivada_en_x0"]),
+            "delta_y_approx": texto_preciso(v["delta_y_aprox"]),
+            "delta_y_real": texto_preciso(v["delta_y_real"]),
+            "absolute_error": texto_preciso(v["error_absoluto"]),
         },
     }
