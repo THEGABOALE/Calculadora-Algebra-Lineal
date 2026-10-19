@@ -77,6 +77,7 @@ sin esa validación.
 | `POST /api/v1/numeric/newton-raphson` | `adapters/numerico.py` + `adapters/latex.py` | `core/numeric/metodos_abiertos.py` |
 | `POST /api/v1/numeric/secant` | `adapters/numerico.py` + `adapters/latex.py` | `core/numeric/metodos_abiertos.py` |
 | `POST /api/v1/numeric/abs-rel-error` | `adapters/numerico.py` | `core/numeric/errores.py` (error absoluto y relativo con `decimal.Decimal`) |
+| `POST /api/v1/numeric/error-accumulation` | `adapters/numerico.py` | `core/numeric/errores.py` (error acumulado en interés compuesto con `decimal.Decimal`) |
 
 Los cuatro métodos numéricos reciben la función en LaTeX
 (`function_latex`); `adapters/latex.py` la traduce a texto plano para
@@ -146,11 +147,11 @@ Lo que sigue quedó **fuera de alcance a propósito**, con evidencia concreta en
 
 ### 7.1. Funciones de `frontend/src/api/client.ts` sin endpoint
 
-Eran cinco; `errorAbsRel` ya tiene endpoint (issue #9, sección 3). `errorAcumulado`, `errorPropagation`, `derivativeMethod` e `integralMethod` siguen llamando a rutas que **no existen** en `api/urls.py`:
+Eran cinco; `errorAbsRel` (issue #9) y `errorAcumulado` (issue #8) ya tienen endpoint (sección 3). `errorPropagation`, `derivativeMethod` e `integralMethod` siguen llamando a rutas que **no existen** en `api/urls.py`:
 
 | Función | Ruta que llama | ¿Existe en `api/urls.py`? |
 |---|---|---|
-| `errorAcumulado` | `POST api/v1/numeric/error-accumulation` | No |
+| `errorAcumulado` | `POST api/v1/numeric/error-accumulation` | Sí (issue #8) |
 | `errorAbsRel` | `POST api/v1/numeric/abs-rel-error` | Sí (issue #9) |
 | `errorPropagation` | `POST api/v1/numeric/propagation-error` | No |
 | `derivativeMethod` | `POST api/v1/calculus/derivate` | No |

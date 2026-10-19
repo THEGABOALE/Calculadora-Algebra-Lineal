@@ -6,7 +6,7 @@
 > `core/numeric/metodos_abiertos.py` (Newton-Raphson, Secante)\
 > (interfaz CLI) `cli/numeric_io.py` (entrada/salida por consola), `cli/numerical_methods_runners.py`, `cli/startup.py` opción `[8]`\
 > (interfaz API) `api/adapters/numerico.py`, `api/adapters/latex.py`\
-> `core/numeric/errores.py` (error absoluto y relativo, sección 9)
+> `core/numeric/errores.py` (error absoluto y relativo, sección 9; error acumulado, sección 10)
 
 Documento técnico que describe los cuatro métodos de búsqueda de raíces del proyecto: dos cerrados (requieren un intervalo con cambio de signo) y dos abiertos (requieren punto(s) inicial(es), sin garantía de convergencia).
 
@@ -229,3 +229,51 @@ Respuesta de la API (las claves que lee `ErrorAbsRelInputs.tsx`, más campos agr
                      "percent": "≈ 0.0477 %", "defined": true, "note": null}
 }
 ```
+
+---
+
+## 10. Error acumulado (interés compuesto)
+
+`core/numeric/errores.py`, expuesto en `POST /api/v1/numeric/error-accumulation` (issue #8).
+
+```py
+calcular_error_acumulado(monto_inicial, tasa, iteraciones, modo="trunc", decimales_aproximacion=2) -> Dict
+```
+
+Compara dos trayectorias que parten del mismo monto `P`, con tasa `r` por período escrita como **fracción decimal** (`0.05` = 5 %):
+
+| | interés del período | saldo |
+|---|---|---|
+| real (sin aproximaciones) | `I_k = r·R_{k-1}` | `R_k = R_{k-1} + I_k = P(1+r)^k` |
+| aproximada | `Ĩ_k = q(r·A_{k-1})` | `A_k = A_{k-1} + Ĩ_k` |
+
+con `R_0 = A_0 = P`. `q` es la operación que se estudia y se aplica al **interés** de cada período antes de sumarlo al saldo, como un banco que acredita intereses en centavos:
+
+- `trunc`: trunca hacia cero (`ROUND_DOWN`): `1.25 → 1.2`, `-1.25 → -1.2` (no `-1.3`, que sería redondear hacia −∞);
+- `round`: redondea mitad hacia arriba, lejos de cero (`ROUND_HALF_UP`, igual que la sección 9): `1.25 → 1.3`, `-1.25 → -1.3`, `9.995 → 10.00`.
+
+La trayectoria aproximada se alimenta de su propio saldo anterior `A_{k-1}`: nunca se recalcula desde `P`.
+
+**Qué es cada columna de error:**
+
+- `diferencia_k = I_k − Ĩ_k`: cuánto crece la brecha **en esa iteración**;
+- `error_acumulado_k = R_k − A_k = Σ diferencia_j`: el error **total** hasta esa iteración.
+
+La diferencia se descompone en `error_local_k = r·A_{k-1} − Ĩ_k` (lo que `q` quitó o agregó en el período) y `error_propagado_k = r·E_{k-1}` (el interés que no generó el error anterior), así que `E_k = (1+r)·E_{k-1} + error_local_k`. El error acumulado no es sólo la suma de los redondeos: cada centavo perdido deja de ganar interés en los períodos siguientes.
+
+**Decisión respecto del repositorio de referencia.** Allí el "monto real" de cada fila se calculaba sobre el saldo **ya aproximado** (`prev + prev·r` con `prev = A_{k-1}`), así que su "error acumulado" sumaba sólo los errores locales y omitía la propagación. Acá la trayectoria real es la del capital sin ninguna aproximación (`P(1+r)^k`), que es la que permite medir el error que produce la aproximación.
+
+**Ejemplo** (`P = 1000`, `r = 0.05`, truncar a 2 decimales):
+
+| k | I real | Ĩ | R | A | diferencia | E |
+|---|---|---|---|---|---|---|
+| 1 | 50 | 50.00 | 1050 | 1050.00 | 0 | 0 |
+| 2 | 52.5 | 52.50 | 1102.5 | 1102.50 | 0 | 0 |
+| 3 | 55.125 | 55.12 | 1157.625 | 1157.62 | 0.005 | 0.005 |
+| 4 | 57.88125 | 57.88 | 1215.50625 | 1215.50 | 0.00125 | 0.00625 |
+
+En la iteración 4, el error local es `0.05·1157.62 − 57.88 = 0.001` y el propagado es `0.05·0.005 = 0.00025`. Redondeando, `55.125 → 55.13` deja el aproximado **por encima** del real, y el error final es `−0.00375`.
+
+**Aritmética.** Todo en `Decimal` exacto (salvo `q`, que es el redondeo estudiado), con un contexto de 2000 cifras y trap de `Inexact` que verifica, en vez de suponer, que ninguna operación de las trayectorias redondeó. **Límites:** monto `|P| ≤ 1e15` con hasta 10 decimales (negativo admitido: una deuda), tasa `0 ≤ r ≤ 1` con hasta 10 decimales (`0` explícito admitido; vacío, no), de 1 a 50 iteraciones, de 0 a 10 decimales de aproximación.
+
+**Presentación (API).** `approx_decimals` es parámetro del cálculo; `interest_display_decimals` (0 a 15, 4 por defecto) sólo cambia cómo se muestran la trayectoria real, las diferencias y los errores (con `≈` si se redondean al mostrarse). La trayectoria aproximada se muestra exacta con `approx_decimals` decimales. Los valores exactos van como texto decimal (`difference`, `error_accum`, `amount_real`, `local_error`, `propagated_error`, `summary.final_error_accum`), nunca como `float`. `summary.initial_amout_pretty` (sic) se conserva como alias de `initial_amount_pretty` para compatibilidad.
