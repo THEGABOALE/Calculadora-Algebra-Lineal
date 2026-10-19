@@ -194,6 +194,37 @@ class TestLimiteDeTiempo(unittest.TestCase):
             integrar_con_limite('y', 'x', segundos=20)
 
 
+class TestTurnosEntreProcesos(unittest.TestCase):
+    """Revisión de Codex (PR #32): el límite de integrales simultáneas vale
+    para toda la máquina, no por proceso del servidor. Otro proceso (como
+    otro worker WSGI) que tiene todos los turnos deja sin turno a éste; al
+    morir ese proceso, el sistema operativo libera los turnos."""
+
+    def test_otro_proceso_con_todos_los_turnos(self):
+        import subprocess
+        import tempfile
+        from core.calculo import ServidorOcupado, integrar_con_limite
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.dict(os.environ, {'CALCULADORA_DIRECTORIO_TURNOS': d}):
+            codigo = ("import sys, time; from core.calculo import INTEGRALES_SIMULTANEAS, tomar_turno; "
+                      "t = [tomar_turno(5) for _ in range(INTEGRALES_SIMULTANEAS)]; "
+                      "print('listo' if all(t) else 'fallo', flush=True); time.sleep(60)")
+            otro = subprocess.Popen([sys.executable, '-c', codigo], stdout=subprocess.PIPE, text=True,
+                                    env=dict(os.environ, PYTHONPATH=_LAC_DIR))
+            try:
+                self.assertEqual(otro.stdout.readline().strip(), 'listo')
+                with mock.patch('core.calculo._ESPERA_TURNO_S', 0.3):
+                    with self.assertRaises(ServidorOcupado):
+                        integrar_con_limite('x**2', 'x', segundos=20)
+            finally:
+                otro.kill()  # muere sin soltar los turnos a mano
+                otro.wait(10)
+                otro.stdout.close()
+            # El sistema operativo liberó los bloqueos del proceso muerto.
+            r = integrar_con_limite('x**2', 'x', segundos=20)
+            self.assertEqual(r['primitiva_texto'], 'x**3/3')
+
+
 class TestEndpoint(unittest.TestCase):
 
     def setUp(self):
@@ -254,11 +285,17 @@ class TestEndpoint(unittest.TestCase):
         self.assertIn('no encontró', data['error']['message'].lower())
 
     def test_sin_turno_503(self):
-        import threading
-        with mock.patch('core.calculo._EN_CURSO', threading.BoundedSemaphore(1)) as sem, \
+        import tempfile
+        from core.calculo import INTEGRALES_SIMULTANEAS, soltar_turno, tomar_turno
+        with tempfile.TemporaryDirectory() as d, \
+                mock.patch.dict(os.environ, {'CALCULADORA_DIRECTORIO_TURNOS': d}), \
                 mock.patch('core.calculo._ESPERA_TURNO_S', 0.1):
-            sem.acquire()  # otra integral "en curso" ocupa el único turno
-            data = self.post(r'x^{2}', status=503)
+            turnos = [tomar_turno(1) for _ in range(INTEGRALES_SIMULTANEAS)]
+            try:
+                data = self.post(r'x^{2}', status=503)
+            finally:
+                for t in turnos:
+                    soltar_turno(t)
         self.assertEqual(data['error']['code'], 'SERVER_BUSY')
 
     def test_tiempo_agotado_422(self):

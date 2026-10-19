@@ -38,9 +38,11 @@ regla que core/numeric/_expresiones.py: el CLI no paga sympy al arrancar).
 
 from __future__ import annotations
 
+import os
 import re
-import threading
-from typing import Any, Dict, List
+import tempfile
+import time
+from typing import Any, Dict, List, Optional
 
 from core.numeric._expresiones import parsear
 
@@ -151,8 +153,15 @@ def derivar_simbolica(f_str: str, variable: str = "x", modo_angular: str = "rad"
 # razonables no terminan (1/(x^5 + x + 1) supera los 30 s). integrar_con_
 # limite corre el cálculo en un PROCESO aparte (multiprocessing "spawn",
 # igual en Windows y Linux) y lo mata si se pasa del plazo: un hilo no se
-# puede cancelar y seguiría consumiendo CPU después de responder. Un
-# semáforo limita cuántos procesos de integración corren a la vez.
+# puede cancelar y seguiría consumiendo CPU después de responder.
+#
+# CONCURRENCIA: a lo sumo INTEGRALES_SIMULTANEAS cálculos en toda la
+# máquina, no por proceso del servidor: con varios workers WSGI/ASGI, un
+# semáforo de threading existiría una vez por worker y el límite se
+# multiplicaría. Cada turno es un archivo con un bloqueo del sistema
+# operativo (msvcrt.locking en Windows, fcntl.flock en Linux): lo comparten
+# todos los procesos y lo libera el sistema aunque el proceso muera, así
+# que un worker caído nunca deja un turno tomado.
 # ---------------------------------------------------------------------------
 
 # Presupuesto total de un cálculo, arranque del proceso incluido (~1.5 s en
@@ -162,7 +171,61 @@ TIEMPO_MAXIMO_INTEGRAL_S = 10.0
 OPERACIONES_MAXIMAS_INTEGRANDO = 60
 INTEGRALES_SIMULTANEAS = 2
 _ESPERA_TURNO_S = 1.0
-_EN_CURSO = threading.BoundedSemaphore(INTEGRALES_SIMULTANEAS)
+# Directorio de los archivos de turno: el temporal del sistema, o el de esta
+# variable de entorno (los tests la usan para aislarse).
+VARIABLE_DIRECTORIO_TURNOS = "CALCULADORA_DIRECTORIO_TURNOS"
+_PREFIJO_TURNO = "calculadora-integral-turno"
+
+
+def _bloquear(archivo) -> bool:
+    """Bloqueo exclusivo no bloqueante del primer byte; True si se obtuvo."""
+    archivo.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(archivo.fileno(), msvcrt.LK_NBLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(archivo.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
+        return True
+    except OSError:
+        return False
+
+
+def _desbloquear(archivo) -> None:
+    archivo.seek(0)
+    try:
+        if os.name == "nt":
+            import msvcrt
+            msvcrt.locking(archivo.fileno(), msvcrt.LK_UNLCK, 1)
+        else:
+            import fcntl
+            fcntl.flock(archivo.fileno(), fcntl.LOCK_UN)
+    finally:
+        archivo.close()
+
+
+def tomar_turno(espera_s: float = _ESPERA_TURNO_S):
+    """Toma uno de los INTEGRALES_SIMULTANEAS turnos de la máquina.
+
+    Devuelve el archivo bloqueado (para soltar_turno) o None si no se liberó
+    ninguno dentro de `espera_s`.
+    """
+    directorio = os.environ.get(VARIABLE_DIRECTORIO_TURNOS) or tempfile.gettempdir()
+    limite = time.monotonic() + espera_s
+    while True:
+        for n in range(INTEGRALES_SIMULTANEAS):
+            archivo = open(os.path.join(directorio, f"{_PREFIJO_TURNO}-{n}.lock"), "a+b")
+            if _bloquear(archivo):
+                return archivo
+            archivo.close()
+        if time.monotonic() >= limite:
+            return None
+        time.sleep(0.05)
+
+
+def soltar_turno(turno) -> None:
+    _desbloquear(turno)
 
 # Funciones especiales admitidas en una primitiva, con su definición (LaTeX
 # que MathQuill 0.10 renderiza: sin espaciados como "\,", que no soporta).
@@ -351,7 +414,8 @@ def integrar_con_limite(f_str: str, variable: str = "x", segundos: float = None)
     Valida la entrada antes (rápido, sin proceso). Si el cálculo no termina
     a tiempo, termina el proceso (terminate y, si hiciera falta, kill) y
     levanta CalculoDemasiadoCostoso. Si ya hay INTEGRALES_SIMULTANEAS
-    corriendo, espera un turno un segundo y si no lo hay, también.
+    corriendo en la máquina (de cualquier proceso), espera un turno
+    _ESPERA_TURNO_S y si no lo hay levanta ServidorOcupado.
     """
     import multiprocessing
 
@@ -359,7 +423,8 @@ def integrar_con_limite(f_str: str, variable: str = "x", segundos: float = None)
         segundos = TIEMPO_MAXIMO_INTEGRAL_S
     preparar_integrando(f_str, variable)
 
-    if not _EN_CURSO.acquire(timeout=_ESPERA_TURNO_S):
+    turno = tomar_turno(_ESPERA_TURNO_S)
+    if turno is None:
         raise ServidorOcupado(
             "Hay otras integrales en cálculo; probá de nuevo en unos segundos."
         )
@@ -384,7 +449,7 @@ def integrar_con_limite(f_str: str, variable: str = "x", segundos: float = None)
                 proceso.kill()
                 proceso.join(2)
     finally:
-        _EN_CURSO.release()
+        soltar_turno(turno)
 
     if respuesta is None:
         raise CalculoDemasiadoCostoso(
@@ -409,5 +474,7 @@ __all__ = [
     "integrar_con_limite",
     "integrar_simbolica",
     "preparar_integrando",
+    "soltar_turno",
+    "tomar_turno",
     "validar_variable",
 ]
