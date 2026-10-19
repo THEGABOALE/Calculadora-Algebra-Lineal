@@ -100,7 +100,7 @@ $$\int f(x)\,dx = F(x) + C, \qquad F'(x) = f(x)$$
 
 **Dominio real y logaritmos.** Un `ln(u)` de la primitiva se muestra como `ln|u|` salvo que `u` sea positivo o que el integrando ya contenga `ln(u)` (lo que restringe el dominio a `u > 0`): `∫1/x = ln|x| + C` (válida por separado en cada intervalo que no contiene al 0), `∫tan x = −ln|cos x| + C`, `∫2x/(x²+1) = ln(x²+1) + C`, pero `∫ln x = x ln x − x + C`. `ln|u|` y `ln u` tienen la misma derivada `u'/u` donde están definidas.
 
-**Verificación.** Antes de devolverla, la primitiva se deriva y se compara con el integrando en varios puntos reales del dominio. Los tests lo hacen además de forma independiente para cada caso.
+**Verificación.** Antes de devolverla, la primitiva se deriva y se compara con el integrando; la verificación nunca termina bien sin haber comparado: (1) en nueve puntos fijos `n/7` de ambos signos; (2) si ninguno está en el dominio real de `f` (`ln(x − 100)` sólo existe para `x > 100`), en puntos dentro de ese dominio, calculado con `continuous_domain`; (3) si tampoco hay, la diferencia simbólica `F' − f` simplificada tiene que dar 0. Un dominio real vacío (`√(−1 − x²)`) o una primitiva que no se puede comprobar se rechazan con `422 INTEGRAL_NOT_RESOLVED`. Todo corre en el proceso hijo, dentro del límite de tiempo. Los tests lo comprueban además de forma independiente para cada caso.
 
 **Política para resultados no elementales.**
 

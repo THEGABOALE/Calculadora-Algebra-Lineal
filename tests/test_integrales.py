@@ -166,6 +166,58 @@ class TestNucleo(unittest.TestCase):
         self.assertIn('compleja', str(ctx.exception))
 
 
+class TestVerificacionDeLaPrimitiva(unittest.TestCase):
+    """Revisión del PR #32: _verificar_primitiva no puede terminar bien sin
+    haber comparado F' con f. Si los puntos fijos caen fuera del dominio
+    real de f (ln(x - 100) sólo existe para x > 100), se buscan puntos
+    dentro del dominio; si no hay forma de comprobar, se rechaza."""
+
+    def setUp(self):
+        from core.calculo import IntegralNoResuelta, _verificar_primitiva
+        self.verificar = _verificar_primitiva
+        self.NoResuelta = IntegralNoResuelta
+        self.x = Symbol('x', real=True)
+
+    def assertRechazada(self, F, f):
+        with self.assertRaises(self.NoResuelta):
+            self.verificar(F, f, self.x)
+
+    def test_candidata_incorrecta_fuera_de_los_puntos_fijos(self):
+        from sympy import log
+        self.assertRechazada(self.x, log(self.x - 100))
+
+    def test_candidata_correcta_fuera_de_los_puntos_fijos(self):
+        from sympy import log
+        x = self.x
+        self.verificar(x * log(x - 100) - x - 100 * log(x - 100), log(x - 100), x)
+
+    def test_otros_dominios_alejados(self):
+        from sympy import asin, sqrt
+        x = self.x
+        # √(x - 50), x ≥ 50
+        self.verificar(2 * (x - 50) ** Rational(3, 2) / 3, sqrt(x - 50), x)
+        self.assertRechazada(x ** 2, sqrt(x - 50))
+        # asin(x/1000 + 5), dominio [-6000, -4000]
+        f = asin(x / 1000 + 5)
+        F = (x + 5000) * asin(x / 1000 + 5) + 1000 * sqrt(1 - (x / 1000 + 5) ** 2)
+        self.verificar(F, f, x)
+        self.assertRechazada(x * f, f)
+
+    def test_sin_valores_reales_se_rechaza(self):
+        from sympy import sqrt
+        # √(-1 - x²) no es real en ningún punto: nada que comprobar.
+        self.assertRechazada(self.x, sqrt(-1 - self.x ** 2))
+
+    def test_integral_completa_con_dominio_alejado(self):
+        from core.calculo import integrar_simbolica
+        x = self.x
+        r = integrar_simbolica('log(x - 100)', 'x')
+        F = expr(r['primitiva_texto'], x)
+        from sympy import log
+        for p in (Rational(101), Rational(301, 2), Rational(1000)):
+            self.assertLess(abs((diff(F, x) - log(x - 100)).subs(x, p).evalf(30)), 1e-20)
+
+
 class TestLimiteDeTiempo(unittest.TestCase):
     """El cálculo corre en un proceso aparte que se mata al vencer el plazo."""
 

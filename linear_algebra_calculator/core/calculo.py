@@ -285,22 +285,93 @@ def _con_valor_absoluto(F, f):
     return F.xreplace(cambios) if cambios else F
 
 
+# Numeradores de los puntos fijos n/7 (racionales exactos, repartidos en ambos signos).
+_PUNTOS_FIJOS_SEPTIMOS = (-23, -13, -6, -2, 3, 5, 11, 19, 30)
+_MAX_INTERVALOS_DOMINIO = 5
+_NO_VERIFICADA = (
+    "sympy devolvió una expresión que no se pudo verificar como primitiva (F' = f); "
+    "no se presenta como resultado."
+)
+
+
+def _puntos_del_dominio(f, x):
+    """Puntos racionales dentro del dominio real de f (continuous_domain).
+
+    Devuelve None si el dominio no se pudo calcular y [] si es vacío. Para
+    cada intervalo: tres puntos interiores si es acotado; si no, tres a
+    distancias 1/3, 2 y 11 del extremo finito.
+    """
+    from sympy import Interval, Rational, S, Union, oo
+    from sympy.calculus.util import continuous_domain
+
+    try:
+        dominio = continuous_domain(f, x, S.Reals)
+    except Exception:
+        return None
+    if dominio is S.EmptySet:
+        return []
+    intervalos = dominio.args if isinstance(dominio, Union) else (dominio,)
+    puntos = []
+    for intervalo in [i for i in intervalos if isinstance(i, Interval)][:_MAX_INTERVALOS_DOMINIO]:
+        a, b = intervalo.start, intervalo.end
+        if a == -oo and b == oo:
+            continue  # ya cubierto por los puntos fijos
+        if a == -oo:
+            puntos += [b - Rational(1, 3), b - 2, b - 11]
+        elif b == oo:
+            puntos += [a + Rational(1, 3), a + 2, a + 11]
+        else:
+            puntos += [a + (b - a) * Rational(k, 7) for k in (1, 3, 5)]
+    if not puntos and dominio is not S.EmptySet:
+        return None  # dominio sin intervalos (puntos aislados): no se muestrea
+    return puntos
+
+
 def _verificar_primitiva(F, f, x) -> None:
-    """F' = f en puntos reales donde f está definida (defensa: no debería fallar)."""
-    from sympy import Rational, diff
+    """Comprueba F' = f; levanta IntegralNoResuelta si no puede comprobarlo.
+
+    Nunca termina bien sin haber comparado: (1) puntos fijos; (2) si ninguno
+    está en el dominio real de f, puntos dentro de ese dominio
+    (continuous_domain); (3) si tampoco hay, la diferencia simbólica
+    simplificada tiene que ser 0. Un dominio real vacío se rechaza: no hay
+    primitiva real que presentar. Corre en el proceso hijo, dentro del
+    límite de tiempo de integrar_con_limite.
+    """
+    from sympy import Rational, diff, simplify
 
     dF = diff(F, x)
-    for n in (-23, -13, -6, -2, 3, 5, 11, 19, 30):
-        p = Rational(n, 7)
+    comparados = 0
+
+    def comparar(p) -> bool:
         fv = f.subs(x, p).evalf(30)
         if not (fv.is_real and fv.is_finite):
-            continue
+            return False
         dv = dF.subs(x, p).evalf(30)
         if not (dv.is_real and dv.is_finite) or abs(dv - fv) > 1e-15 * max(1, abs(fv)):
             raise IntegralNoResuelta(
                 "sympy devolvió una expresión que no pasa la verificación F' = f; "
                 "no se presenta como resultado."
             )
+        return True
+
+    for n in _PUNTOS_FIJOS_SEPTIMOS:
+        comparados += comparar(Rational(n, 7))
+    if comparados:
+        return
+
+    puntos = _puntos_del_dominio(f, x)
+    if puntos == []:
+        raise IntegralNoResuelta(
+            "La función no toma valores reales en ningún punto: no hay una primitiva real "
+            "que presentar."
+        )
+    for punto in puntos or ():
+        comparados += comparar(punto)
+    if comparados:
+        return
+
+    if simplify(dF - f) != 0:
+        raise IntegralNoResuelta(_NO_VERIFICADA)
 
 
 def preparar_integrando(f_str: str, variable: str = "x"):
