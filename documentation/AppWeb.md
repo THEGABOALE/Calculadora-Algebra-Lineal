@@ -79,6 +79,7 @@ sin esa validación.
 | `POST /api/v1/numeric/abs-rel-error` | `adapters/numerico.py` | `core/numeric/errores.py` (error absoluto y relativo con `decimal.Decimal`) |
 | `POST /api/v1/numeric/error-accumulation` | `adapters/numerico.py` | `core/numeric/errores.py` (error acumulado en interés compuesto con `decimal.Decimal`) |
 | `POST /api/v1/calculus/derivate` | `adapters/calculo.py` + `adapters/latex.py` | `core/calculo.py` (derivada simbólica; ver [`CalculoSimbolico.md`](CalculoSimbolico.md)) |
+| `POST /api/v1/calculus/integral` | `adapters/calculo.py` + `adapters/latex.py` | `core/calculo.py` (integral indefinida en un proceso con límite de tiempo; ver [`CalculoSimbolico.md`](CalculoSimbolico.md)) |
 | `POST /api/v1/numeric/propagation-error` | `adapters/numerico.py` + `adapters/latex.py` | `core/numeric/propagacion.py` (propagación de error; ver [`MetodosNumericos.md`](MetodosNumericos.md), sección 11) |
 
 Los cuatro métodos numéricos reciben la función en LaTeX
@@ -147,9 +148,9 @@ concretos:
 
 Lo que sigue quedó **fuera de alcance a propósito**, con evidencia concreta en el código de que es una decisión, no un olvido silencioso.
 
-### 7.1. Funciones de `frontend/src/api/client.ts` sin endpoint
+### 7.1. Funciones de `frontend/src/api/client.ts` que no tenían endpoint (ya resuelto)
 
-Eran cinco; `errorAbsRel` (issue #9), `errorAcumulado` (issue #8), `derivativeMethod` (issue #10) y `errorPropagation` (issue #11) ya tienen endpoint (sección 3). `integralMethod` sigue llamando a una ruta que **no existe** en `api/urls.py`:
+Eran cinco y las cinco tienen endpoint desde los issues #8 a #12 (sección 3):
 
 | Función | Ruta que llama | ¿Existe en `api/urls.py`? |
 |---|---|---|
@@ -157,11 +158,9 @@ Eran cinco; `errorAbsRel` (issue #9), `errorAcumulado` (issue #8), `derivativeMe
 | `errorAbsRel` | `POST api/v1/numeric/abs-rel-error` | Sí (issue #9) |
 | `errorPropagation` | `POST api/v1/numeric/propagation-error` | Sí (issue #11) |
 | `derivativeMethod` | `POST api/v1/calculus/derivate` | Sí (issue #10) |
-| `integralMethod` | `POST api/v1/calculus/integral` | No |
+| `integralMethod` | `POST api/v1/calculus/integral` | Sí (issue #12) |
 
-Los cinco componentes se portaron **tal cual** en la Fase 6 (junto con el resto de `frontend/`), sin endpoint porque no había una función equivalente en `core/`. El error absoluto/relativo y el error acumulado ya se implementaron en `core/numeric/errores.py` (issues #9 y #8), la derivada simbólica en `core/calculo.py` (issue #10) y la propagación de error en `core/numeric/propagacion.py` (issue #11). Para las integrales sigue sin haber motor en `core/`: conectarlas pide escribir la función en `core/` primero, no es trabajo de adaptador.
-
-Si se llama hoy, `integralMethod` falla con un 404 de Django (ninguna vista responde en esa ruta), no con un error de la API.
+Los cinco componentes se portaron **tal cual** en la Fase 6 (junto con el resto de `frontend/`), sin endpoint porque no había una función equivalente en `core/`. Ahora el error absoluto/relativo y el error acumulado están en `core/numeric/errores.py` (issues #9 y #8), la derivada y la integral simbólicas en `core/calculo.py` (issues #10 y #12) y la propagación de error en `core/numeric/propagacion.py` (issue #11). Ninguna función de `client.ts` apunta ya a una ruta inexistente.
 
 ### 7.2. `verify_transpose_props` / `verify_inverse_props`
 
