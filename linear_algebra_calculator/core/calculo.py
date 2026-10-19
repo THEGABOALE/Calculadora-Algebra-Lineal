@@ -81,13 +81,19 @@ def _simplificar(derivada):
     return derivada
 
 
-def derivar_simbolica(f_str: str, variable: str = "x") -> Dict[str, Any]:
+def derivar_simbolica(f_str: str, variable: str = "x", modo_angular: str = "rad") -> Dict[str, Any]:
     """Derivada exacta de f respecto de `variable`.
 
     Devuelve {"variable", "funcion", "funcion_latex", "derivada",
     "derivada_latex", "derivada_texto"}: `funcion` y `derivada` son
     expresiones de sympy; los *_latex, LaTeX de sympy (renderizable por
     MathQuill/KaTeX); `derivada_texto`, el str() de sympy.
+
+    `modo_angular` se pasa a parsear(): con "deg", sin/cos/tan se leen en
+    grados (sin(x) -> sin(πx/180)) ANTES de derivar, así que la derivada ya
+    trae el factor π/180 de la regla de la cadena. calculus/derivate usa
+    siempre el default "rad"; la propagación de error (core/numeric/
+    propagacion.py) es la que pasa "deg".
 
     Levanta ValueError (con un mensaje para el usuario) si la variable no es
     válida, el texto no se puede interpretar, usa funciones desconocidas o
@@ -101,7 +107,7 @@ def derivar_simbolica(f_str: str, variable: str = "x") -> Dict[str, Any]:
     if len(f_str) > LARGO_MAXIMO:
         raise ValueError(f"La expresión es demasiado larga (máximo {LARGO_MAXIMO} caracteres).")
 
-    expr, simbolo = parsear(f_str, variable=variable)
+    expr, simbolo = parsear(f_str, modo_angular=modo_angular, variable=variable)
     _rechazar_operadores_de_calculo(expr)
 
     real = Symbol(variable, real=True)

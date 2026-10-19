@@ -506,3 +506,32 @@ class DerivativeSerializer(serializers.Serializer):
         except ValueError as exc:
             raise serializers.ValidationError(str(exc))
         return valor
+
+
+class PropagationErrorSerializer(serializers.Serializer):
+    # x0 y delta_x son LaTeX de MathQuill (\frac{\pi}{6}, 0.5, ...), no
+    # números: se validan como expresiones en core/numeric/propagacion.py.
+    function_latex = serializers.CharField(
+        max_length=LARGO_MAXIMO,
+        error_messages={
+            "required": "Falta la función f(x) (function_latex).",
+            "blank": "Ingresá la función f(x).",
+            "null": "Ingresá la función f(x).",
+            "max_length": f"La función es demasiado larga (máximo {LARGO_MAXIMO} caracteres).",
+        },
+    )
+    x0 = serializers.CharField(
+        max_length=100,
+        error_messages={"required": "Falta x₀.", "blank": "Ingresá x₀.", "null": "Ingresá x₀.",
+                        "max_length": "x₀ es demasiado largo (máximo 100 caracteres)."},
+    )
+    delta_x = serializers.CharField(
+        max_length=100,
+        error_messages={"required": "Falta Δx.", "blank": "Ingresá Δx.", "null": "Ingresá Δx.",
+                        "max_length": "Δx es demasiado largo (máximo 100 caracteres)."},
+    )
+    angle_mode = serializers.ChoiceField(
+        choices=["rad", "deg"], required=False, default="rad",
+        error_messages={"invalid_choice": "El modo angular debe ser 'rad' (radianes) o 'deg' (grados)."},
+    )
+    decimals = _entero("La cantidad de decimales", 0, DECIMALES_MAXIMOS, required=False, default=6)
