@@ -50,10 +50,10 @@ export async function vectorCombination(payload: { A: number[][]; b: number[]; o
 
 export async function errorAcumulado(payload: {
   initial_amount: string
-  iterations: number
+  iterations?: number
   mode: 'trunc' | 'round'
   rate: string
-  approx_decimals: number
+  approx_decimals?: number
   interest_display_decimals?: number
 }) {
   const res = await client.post('api/v1/numeric/error-accumulation', payload)
