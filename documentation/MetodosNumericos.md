@@ -6,7 +6,8 @@
 > `core/numeric/metodos_abiertos.py` (Newton-Raphson, Secante)\
 > (interfaz CLI) `cli/numeric_io.py` (entrada/salida por consola), `cli/numerical_methods_runners.py`, `cli/startup.py` opción `[8]`\
 > (interfaz API) `api/adapters/numerico.py`, `api/adapters/latex.py`\
-> `core/numeric/errores.py` (error absoluto y relativo, sección 9; error acumulado, sección 10)
+> `core/numeric/errores.py` (error absoluto y relativo, sección 9; error acumulado, sección 10)\
+> `core/numeric/propagacion.py` (propagación de error, sección 11)
 
 Documento técnico que describe los cuatro métodos de búsqueda de raíces del proyecto: dos cerrados (requieren un intervalo con cambio de signo) y dos abiertos (requieren punto(s) inicial(es), sin garantía de convergencia).
 
@@ -43,7 +44,7 @@ Funciones soportadas: `sin`, `cos`, `tan`, `exp`, `log`, `log10`, `sqrt`, `abs`,
 - no hay trigonométricas inversas soportadas (`asin`, `acos`, `atan`), así que ningún resultado se devuelve como ángulo: el modo afecta sólo a los argumentos;
 - funciones sin trigonométricas (`x**2 - 4`, `exp(x) - 2`) dan exactamente el mismo resultado en los dos modos.
 
-Hoy sólo `metodo_secante` expone el modo (issue #24); Newton-Raphson, Bisección y Regla Falsa siguen evaluando en radianes. Un valor distinto de `"rad"`/`"deg"` levanta `ValueError`.
+Exponen el modo `metodo_secante` (issue #24) y la propagación de error (sección 11, issue #11); Newton-Raphson, Bisección y Regla Falsa siguen evaluando en radianes. Un valor distinto de `"rad"`/`"deg"` levanta `ValueError`.
 
 **Import diferido, a propósito:** `sympy` se importa dentro de las funciones de `_expresiones.py`, nunca a nivel de módulo. `cli/startup.py` importa `cli.numerical_methods_runners` a nivel de módulo, así que si `core/numeric/` importara `sympy` arriba, el CLI entero pagaría esa carga en cada arranque, antes de mostrar el menú, aunque el usuario sólo fuera a resolver una matriz. Mismo motivo por el que `utils/symbolic_equations.py` aísla `symengine`.
 
@@ -146,7 +147,7 @@ Menú de tres niveles bajo `[8] Métodos Numéricos ▸` en `cli/startup.py`:
 
 **`angle_mode` (sólo secante):** `"rad"` (default si se omite) o `"deg"`; cualquier otro valor responde `400 VALIDATION_ERROR`. Se pasa hasta `metodo_secante(modo_angular=...)` y la respuesta lo repite en el campo `angle_mode`. Antes del issue #24 el parámetro se aceptaba sin validar y se ignoraba: con `"deg"` la API devolvía la raíz en radianes.
 
-**Entrada en LaTeX, no en texto plano.** El frontend tiene un teclado matemático que produce LaTeX; `api/adapters/latex.py::latex_a_texto` lo traduce a la sintaxis de texto que espera `core/numeric` (`sympy.parsing.latex.parse_latex`, que necesita `antlr4-python3-runtime`). Esa dependencia queda confinada al adaptador — ni `core/` ni el CLI la cargan nunca.
+**Entrada en LaTeX, no en texto plano.** El frontend tiene un teclado matemático que produce LaTeX; `api/adapters/latex.py::latex_a_texto` lo traduce a la sintaxis de texto que espera `core/numeric` (`sympy.parsing.latex.parse_latex`, que necesita `antlr4-python3-runtime`). Esa dependencia queda confinada al adaptador — ni `core/` ni el CLI la cargan nunca. Antes de parsear se eliminan los comandos de espaciado de LaTeX (`\ `, `\,`, `\;`, `\:`, `\!`, `\quad`, `\qquad`, `~`), que MathQuill puede insertar y no tienen significado matemático.
 
 **Los nombres de campo cambian respecto de `core/`**, porque el frontend se portó de otro repo con su propio vocabulario y no vale la pena reescribirlo para que coincida con el español de `core/`. `api/adapters/numerico.py` hace el rename fila por fila:
 
@@ -277,3 +278,30 @@ En la iteración 4, el error local es `0.05·1157.62 − 57.88 = 0.001` y el pro
 **Aritmética.** Todo en `Decimal` exacto (salvo `q`, que es el redondeo estudiado), con un contexto de 2000 cifras y trap de `Inexact` que verifica, en vez de suponer, que ninguna operación de las trayectorias redondeó. **Límites:** monto `|P| ≤ 1e15` con hasta 10 decimales (negativo admitido: una deuda), tasa `0 ≤ r ≤ 1` con hasta 10 decimales (`0` explícito admitido; vacío, no), de 1 a 50 iteraciones, de 0 a 10 decimales de aproximación.
 
 **Presentación (API).** `approx_decimals` es parámetro del cálculo; `interest_display_decimals` (0 a 15, 4 por defecto) sólo cambia cómo se muestran la trayectoria real, las diferencias y los errores (con `≈` si se redondean al mostrarse). La trayectoria aproximada se muestra exacta con `approx_decimals` decimales. Los valores exactos van como texto decimal (`difference`, `error_accum`, `amount_real`, `local_error`, `propagated_error`, `summary.final_error_accum`), nunca como `float`. `summary.initial_amout_pretty` (sic) se conserva como alias de `initial_amount_pretty` para compatibilidad.
+
+---
+
+## 11. Propagación de error
+
+`core/numeric/propagacion.py`, expuesto en `POST /api/v1/numeric/propagation-error` (issue #11).
+
+```py
+propagar_error(f_str, x0_str, dx_str, modo_angular="rad", decimales=6) -> Dict
+```
+
+| magnitud | fórmula |
+|---|---|
+| derivada | `f'(x)` simbólica (`core/calculo.derivar_simbolica`) evaluada en `x₀` |
+| incremento aproximado | `Δy_aprox ≈ f'(x₀)·Δx` |
+| incremento real | `Δy_real = f(x₀ + Δx) − f(x₀)` |
+| error absoluto | `e_a = |Δy_real − Δy_aprox|` |
+
+**Modo angular: una sola estrategia.** La función se transforma **antes** de derivar con el mismo mecanismo que la Secante (sección 2, issue #24): con `"deg"`, `sin(x)` se lee como `sin(πx/180)`. `x₀` y `Δx` se interpretan en grados y se evalúan tal cual, sin una segunda conversión, y la derivada respecto de esa misma coordenada trae el factor `π/180` por regla de la cadena: `d/dx sin(πx/180) = (π/180)·cos(πx/180)`. Así, `f'(30°) = π√3/360 ≈ 0.015115`, no `cos(30)` ni `cos(30°)`. Las funciones sin trigonométricas (`x²`) dan exactamente lo mismo en los dos modos. En `"deg"` se rechazan las trigonométricas que no tienen conversión (`sec`, `csc`, `cot`) y las inversas (`asin`, …): se evaluarían en radianes y el resultado se presentaría como si fuera en grados. En los dos modos, `π` escrito en `x₀` o `Δx` es el número 3.14159…, no 180°.
+
+**Entradas.** `function_latex`, `x0` y `delta_x` son LaTeX de MathQuill y se traducen con el parser estricto (el de `calculus/derivate`); los comandos de espaciado (`\ `, `\,`, `\;`, `\quad`, …) se eliminan antes de parsear. `x₀` y `Δx` admiten enteros, decimales, fracciones, `π`, `e` y expresiones numéricas sin variables (`\frac{\pi}{4}`, `2\pi`, `\sqrt{2}`); se leen como números **exactos** (`0.1 → 1/10`). Se rechazan con `400 VALIDATION_ERROR`: campos vacíos, LaTeX incompleto, variables en `x₀`/`Δx`, valores complejos o infinitos, puntos fuera del dominio (`1/x` en 0, `ln` de un negativo, `√` de un negativo) y puntos donde `f` no es derivable (`√x` o `|x|` en 0).
+
+**Precisión.** `f(x₀)`, `f(x₀ + Δx)` y `f'(x₀)` se construyen exactos y recién al final se evalúan con 50 cifras significativas (`evalf` de sympy sube la precisión interna ante cancelaciones, como en `f(x₀+Δx) − f(x₀)` con `Δx` chico). Los valores racionales con expresión decimal finita se devuelven exactos (`2.1² − 4 = 0.41`). `decimals` (0 a 15, 6 por defecto) sólo controla la presentación: `steps.*.result` y `result.*` llevan `≈` si se redondean, y un error no nulo nunca se muestra como `0` (pasa a notación científica). `values.*` trae los números exactos o con 50 cifras.
+
+**Límites.** `function_latex` hasta 500 caracteres, `x0`/`delta_x` hasta 100, magnitudes hasta `1e100` y exponentes numéricos de `f` de valor absoluto ≤ 1000 (para no construir enteros gigantes al evaluar).
+
+**Ejemplo** (`f = x²`, `x₀ = 2`, `Δx = 0.1`): `f'(2) = 4`, `Δy_aprox = 0.4`, `Δy_real = 0.41`, `e_a = 0.01`, todos exactos.
