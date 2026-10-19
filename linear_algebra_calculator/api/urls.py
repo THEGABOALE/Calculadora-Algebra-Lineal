@@ -3,6 +3,7 @@ from django.urls import path
 from api.views import (
     AbsRelErrorView,
     BisectionView,
+    DerivativeView,
     ErrorAccumulationView,
     FalsePositionView,
     MatrixDeterminantView,
@@ -30,4 +31,6 @@ urlpatterns = [
     path("numeric/false-position", FalsePositionView.as_view(), name="false-position"),
     path("numeric/newton-raphson", NewtonRaphsonView.as_view(), name="newton-raphson"),
     path("numeric/secant", SecantView.as_view(), name="secant"),
+    # "derivate" (sic): es la ruta que ya usa frontend/src/api/client.ts.
+    path("calculus/derivate", DerivativeView.as_view(), name="derivate"),
 ]
