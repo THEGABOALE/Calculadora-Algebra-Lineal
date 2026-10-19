@@ -5,6 +5,7 @@ from api.views import (
     BisectionView,
     DerivativeView,
     ErrorAccumulationView,
+    IntegralView,
     FalsePositionView,
     MatrixDeterminantView,
     MatrixOperateView,
@@ -35,4 +36,5 @@ urlpatterns = [
     path("numeric/secant", SecantView.as_view(), name="secant"),
     # "derivate" (sic): es la ruta que ya usa frontend/src/api/client.ts.
     path("calculus/derivate", DerivativeView.as_view(), name="derivate"),
+    path("calculus/integral", IntegralView.as_view(), name="integral"),
 ]

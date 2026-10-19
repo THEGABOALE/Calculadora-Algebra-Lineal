@@ -535,3 +535,32 @@ class PropagationErrorSerializer(serializers.Serializer):
         error_messages={"invalid_choice": "El modo angular debe ser 'rad' (radianes) o 'deg' (grados)."},
     )
     decimals = _entero("La cantidad de decimales", 0, DECIMALES_MAXIMOS, required=False, default=6)
+
+
+class IntegralSerializer(serializers.Serializer):
+    function_latex = serializers.CharField(
+        max_length=LARGO_MAXIMO,
+        error_messages={
+            "required": "Falta la función a integrar (function_latex).",
+            "blank": "Ingresá la función a integrar.",
+            "null": "Ingresá la función a integrar.",
+            "invalid": "La función debe enviarse como texto LaTeX.",
+            "max_length": f"La expresión es demasiado larga (máximo {LARGO_MAXIMO} caracteres).",
+        },
+    )
+    variable = serializers.CharField(
+        required=False,
+        default="x",
+        error_messages={
+            "blank": "Indicá la variable de integración (por ejemplo x o t).",
+            "null": "Indicá la variable de integración (por ejemplo x o t).",
+            "invalid": "La variable de integración debe ser una letra.",
+        },
+    )
+
+    def validate_variable(self, valor):
+        try:
+            validar_variable(valor, "integración")
+        except ValueError as exc:
+            raise serializers.ValidationError(str(exc))
+        return valor
