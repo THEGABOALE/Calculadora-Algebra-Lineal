@@ -157,9 +157,9 @@ Eran cinco; `errorAbsRel` (issue #9) y `errorAcumulado` (issue #8) ya tienen end
 | `derivativeMethod` | `POST api/v1/calculus/derivate` | No |
 | `integralMethod` | `POST api/v1/calculus/integral` | No |
 
-Son componentes de frontend que se portaron **tal cual** en la Fase 6 (junto con el resto de `frontend/`), pero cuyo endpoint nunca se construyó porque no hay una función equivalente en `core/`: no hay error acumulado, error absoluto/relativo, propagación de error, derivadas ni integrales simbólicas independientes en el motor matemático de este repo (Newton-Raphson deriva internamente con `sympy.diff`, pero no hay un endpoint que exponga "derivar esta expresión" como operación propia). Conectar estos cinco pediría escribir la función en `core/` primero — no es trabajo de adaptador, es motor nuevo.
+Los cinco componentes se portaron **tal cual** en la Fase 6 (junto con el resto de `frontend/`), sin endpoint porque no había una función equivalente en `core/`. El error absoluto/relativo y el error acumulado ya se implementaron en `core/numeric/errores.py` (issues #9 y #8). Para los tres restantes sigue sin haber motor: no hay propagación de error, derivadas ni integrales simbólicas independientes en `core/` (Newton-Raphson deriva internamente con `sympy.diff`, pero no hay un endpoint que exponga "derivar esta expresión" como operación propia). Conectarlos pide escribir la función en `core/` primero: no es trabajo de adaptador, es motor nuevo.
 
-Si se llaman hoy, fallan con un 404 de Django (ninguna vista responde en esa ruta), no con un error de la API.
+Si se llaman hoy, esos tres fallan con un 404 de Django (ninguna vista responde en esa ruta), no con un error de la API.
 
 ### 7.2. `verify_transpose_props` / `verify_inverse_props`
 
