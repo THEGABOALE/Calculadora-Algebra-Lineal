@@ -91,8 +91,10 @@ export async function secantMethod(payload: { function_latex: string; x0: number
 }
 
 export async function derivativeMethod(payload: { latex: string; variable?: string }) {
-  const body: any = { function_latex: payload.latex };
-  // variable is optional; backend infers variable from latex
+  // variable es opcional: si se omite, el backend deriva respecto de x; si
+  // llega vacía, la rechaza con un mensaje (no se reemplaza en silencio).
+  const body: { function_latex: string; variable?: string } = { function_latex: payload.latex };
+  if (payload.variable !== undefined) body.variable = payload.variable;
   const res = await client.post('api/v1/calculus/derivate', body);
   return res.data;
 }
